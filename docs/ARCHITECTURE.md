@@ -72,7 +72,7 @@ Shared network safety: an SSRF guard (`is_public_http_url`) that blocks loopback
 
 ### `cli.py` / `demo.py`
 
-`cli.py` is the entry point: it runs the MCP server (stdio/streamable-http/sse) or, via the `demo` subcommand, runs `demo.py` — a zero-config one-shot pipeline that writes a report + citation graph and opens the graph in a browser.
+`cli.py` is the entry point: it runs the MCP server (stdio/streamable-http/sse) or, via the `demo` subcommand, runs `demo.py`, a zero-config one-shot pipeline that writes a report and citation graph and opens the graph in a browser.
 
 ## Data Flow
 

@@ -1,10 +1,10 @@
-# Sample output — `deep_read_topic("retrieval augmented generation")`
+# Sample output: `deep_read_topic("retrieval augmented generation")`
 
 > This is a **real** report produced by Paper Pilot's `deep_read_topic` tool,
-> lightly curated for the README: local file paths shortened, one run's
-> transient rate-limit warnings removed, and the most representative evidence
-> pages surfaced. Every paper, author, citation count, and quoted excerpt below
-> is verbatim from the live pipeline run. Reproduce it yourself with:
+> curated for the README: local file paths shortened, one run's transient
+> rate-limit warnings removed, and the most representative evidence pages
+> surfaced. Every paper, author, citation count, and quoted excerpt below is
+> verbatim from the live pipeline run. Reproduce it yourself with:
 >
 > ```bash
 > paper-pilot demo "retrieval augmented generation"
@@ -32,8 +32,8 @@
 
 | Paper | Method | Key finding | Limitation |
 |-------|--------|-------------|------------|
-| **RAG Survey** (Gao et al., 2023) | A taxonomy review organizing RAG systems into three paradigms — **Naive RAG**, **Advanced RAG**, and **Modular RAG** — and dissecting the tripartite foundation of retrieval, generation, and augmentation. | RAG grounds LLMs in external knowledge to reduce hallucination; the field is moving from naive retrieve-then-read pipelines toward modular, iterative architectures. | A survey, not an empirical study — it organizes and contextualizes existing methods rather than producing new benchmark results. |
-| **RGB Benchmark** (Chen et al., 2024) | Introduces the **Retrieval-Augmented Generation Benchmark (RGB)** — an English + Chinese corpus that isolates four fundamental RAG abilities: **noise robustness, negative rejection, information integration, counterfactual robustness**. | Even strong LLMs struggle with negative rejection and counterfactual robustness; RAG helps but exposes clear capability bottlenecks per ability. | Scope limited to four constructed testbeds; results reflect the chosen retrieval corpus and the LLMs available at evaluation time. |
+| **RAG Survey** (Gao et al., 2023) | A taxonomy review organizing RAG systems into three paradigms (**Naive RAG**, **Advanced RAG**, **Modular RAG**) and dissecting the tripartite foundation of retrieval, generation, and augmentation. | RAG grounds LLMs in external knowledge to reduce hallucination; the field is moving from naive retrieve-then-read pipelines toward modular, iterative architectures. | A survey, not an empirical study; it organizes and contextualizes existing methods rather than producing new benchmark results. |
+| **RGB Benchmark** (Chen et al., 2024) | Introduces the **Retrieval-Augmented Generation Benchmark (RGB)**, an English + Chinese corpus that isolates four fundamental RAG abilities: **noise robustness, negative rejection, information integration, counterfactual robustness**. | Even strong LLMs struggle with negative rejection and counterfactual robustness; RAG helps but exposes clear capability bottlenecks per ability. | Scope limited to four constructed testbeds; results reflect the chosen retrieval corpus and the LLMs available at evaluation time. |
 
 > **TL;DR.** The Gao et al. survey is the canonical map of the RAG landscape
 > (Naive → Advanced → Modular). The Chen et al. RGB paper is the
@@ -73,9 +73,9 @@ corpus for RAG evaluation in both English and Chinese.
 
 ## Similar Work (auto-expanded from the top result)
 
-- **Active Retrieval Augmented Generation** (2023) — iterative retrieval during generation
-- **Benchmarking Retrieval-Augmented Generation for Medicine** (2024) — domain-specific RAG evaluation
-- **Self-RAG / corrective-RAG family** — surfaced via relatedness expansion
+- **Active Retrieval Augmented Generation** (2023): iterative retrieval during generation
+- **Benchmarking Retrieval-Augmented Generation for Medicine** (2024): domain-specific RAG evaluation
+- **Self-RAG / corrective-RAG family**: surfaced via relatedness expansion
 
 ## How to use this report
 

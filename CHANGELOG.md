@@ -4,7 +4,7 @@
 
 ### Added
 - **6th academic source: DOAJ** (Directory of Open Access Journals)
-- **`paper-pilot demo "<topic>"`** — zero-config one-command CLI that runs the full
+- **`paper-pilot demo "<topic>"`**: zero-config one-command CLI that runs the full
   pipeline and opens an interactive citation graph in the browser (no MCP client needed)
 - **`graph_topic` tool** and a `write_graph` flag on `research_topic` / `deep_read_topic`
   that render a self-contained interactive citation/relatedness graph (HTML)
@@ -14,7 +14,7 @@
 - `ruff` linting wired into CI; launch/distribution playbook under `docs/launch/`
 
 ### Fixed
-- **HTTP/SSE transports** now work (`--transport streamable-http|sse` no longer crashes —
+- **HTTP/SSE transports** now work (`--transport streamable-http|sse` no longer crashes;
   network options are set on `mcp.settings` instead of passed to `mcp.run()`)
 - Semantic Scholar single-sided year filters are now open-ended (no more silent 10-year window)
 - arXiv records dedupe across `abs`/`pdf`/versioned URLs

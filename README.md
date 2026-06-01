@@ -5,9 +5,9 @@
 
 **Your AI's research copilot.**
 
-*An MCP server that gives Claude, Codex, and any AI agent real academic research — 6 databases, full-text PDFs, evidence with citations, figure rendering, and Zotero sync.*
+*An MCP server that gives Claude, Codex, and any AI agent real academic research: 6 databases, full-text PDFs, evidence with citations, figure rendering, and Zotero sync.*
 
-Your AI Googles when you say "research." Paper Pilot actually searches real academic databases, downloads the PDFs, reads them cover to cover, renders the figures, and gives you evidence with citations — then files it all in your Zotero library.
+Your AI Googles when you say "research." Paper Pilot searches real academic databases, downloads the PDFs, reads them cover to cover, renders the figures, gives you evidence with citations, and files it all in your Zotero library.
 
 [![CI](https://github.com/aytzey/paper-pilot/actions/workflows/ci.yml/badge.svg)](https://github.com/aytzey/paper-pilot/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/paper-pilot)](https://pypi.org/project/paper-pilot/)
@@ -23,7 +23,7 @@ Your AI Googles when you say "research." Paper Pilot actually searches real acad
 
 ## Quick start
 
-**Try it in 30 seconds — no MCP client, no config:**
+**Try it in 30 seconds. No MCP client, no config:**
 
 ```bash
 # straight from GitHub (works today):
@@ -39,7 +39,7 @@ This searches 6 academic databases, downloads the open-access PDFs, reads them, 
 
 ### Then plug it into your AI agent
 
-Wire it into your MCP client ([setup below](#mcp-client-setup)), set a free `OPENALEX_EMAIL`, and just ask:
+Wire it into your MCP client ([setup below](#mcp-client-setup)), set a free `OPENALEX_EMAIL`, and ask:
 
 > *Research retrieval-augmented generation, deep-read the top papers, and compare the methods.*
 
@@ -58,7 +58,7 @@ graph LR
     G --> H[Zotero sync]
 ```
 
-One prompt. Six academic databases. Real PDFs. Real citations.
+One prompt searches six academic databases, downloads the real PDFs, and returns real citations.
 
 ```
 Research retrieval-augmented generation, deep-read the top papers, and compare the methods.
@@ -67,7 +67,7 @@ Research retrieval-augmented generation, deep-read the top papers, and compare t
 Your AI will:
 
 1. Search **Semantic Scholar**, **OpenAlex**, **arXiv**, **Crossref**, **Europe PMC**, and **DOAJ**
-2. Find the open-access PDFs, not just abstracts
+2. Find the open-access PDFs, not abstracts
 3. Download and read them cover to cover
 4. Extract evidence chunks with source attribution
 5. Render specific pages so it can *see* the figures and tables
@@ -160,7 +160,7 @@ paper-pilot --transport streamable-http --host 127.0.0.1 --port 8000
 | `inspect_libgen_item` | Resolve a LibGen mirror item and preview its PDF (opt-in) |
 | `healthcheck` | Verify all connections are up |
 
-> Prefer the CLI? `paper-pilot demo "<topic>"` runs the whole pipeline and opens the citation graph — no MCP client required.
+> Prefer the CLI? `paper-pilot demo "<topic>"` runs the whole pipeline and opens the citation graph. No MCP client required.
 
 ---
 
