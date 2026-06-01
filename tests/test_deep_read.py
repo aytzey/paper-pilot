@@ -1,4 +1,7 @@
+import json
 from pathlib import Path
+
+import pytest
 
 try:
     import fitz
@@ -85,6 +88,42 @@ def test_select_evidence_pages_bounded(tmp_path: Path) -> None:
     pages = service.select_evidence_pages(artifact, max_pages=1)
     assert len(pages) <= 1
     assert all(1 <= page <= 2 for page in pages)
+
+
+def test_page_text_returns_full_text_and_validates(tmp_path: Path) -> None:
+    pdf_path = tmp_path / "p.pdf"
+    _make_pdf(pdf_path)
+    service = DeepReadingService(_settings(tmp_path))
+    pages = service.page_text(pdf_path, [1, 2])
+    assert [p["page"] for p in pages] == [1, 2]
+    assert "Transformer" in pages[0]["text"]
+    with pytest.raises(ValueError):
+        service.page_text(pdf_path, [99])
+
+
+def test_manifest_stores_full_untruncated_chunk_text(tmp_path: Path) -> None:
+    pdf_path = tmp_path / "long.pdf"
+    document_pdf = fitz.open()
+    page = document_pdf.new_page()
+    y = 50
+    for i in range(40):
+        page.insert_text((40, y), f"line {i}: retrieval augmented generation evidence chunk content here")
+        y += 18
+    document_pdf.save(pdf_path)
+    document_pdf.close()
+
+    service = DeepReadingService(_settings(tmp_path))
+    document = DownloadedDocument(
+        paper=PaperRecord(source="test", source_id="1", title="Long"),
+        path=pdf_path,
+        page_count=1,
+        extracted_preview="",
+    )
+    artifact = service.extract_document(document, research_question="retrieval")
+    manifest = json.loads(artifact.chunk_manifest_path.read_text(encoding="utf-8"))
+    # the on-disk manifest must keep full chunk text (no 1200-char truncation marker)
+    assert any(len(chunk["text"]) > 1200 for chunk in manifest["chunks"])
+    assert all(not chunk["text"].endswith("...") for chunk in manifest["chunks"])
 
 
 def test_render_pages_exports_pngs(tmp_path: Path) -> None:

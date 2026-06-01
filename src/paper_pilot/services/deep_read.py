@@ -87,7 +87,8 @@ class DeepReadingService:
                     "text_path": str(text_path),
                     "page_count": page_count,
                     "full_text_char_count": len(full_text),
-                    "chunks": [chunk.to_dict() for chunk in chunks],
+                    # Sidecar file (not an MCP payload) -> store full, untruncated chunk text.
+                    "chunks": [chunk.to_dict(max_chars=len(chunk.text)) for chunk in chunks],
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -189,6 +190,17 @@ class DeepReadingService:
         path = Path(pdf_path).expanduser().resolve()
         with fitz.open(path) as document:
             return document.page_count
+
+    def page_text(self, pdf_path: str | Path, page_numbers: list[int]) -> list[dict]:
+        """Return the exact extracted text of specific 1-based pages (for fine-grained lookups)."""
+        path = Path(pdf_path).expanduser().resolve()
+        results: list[dict] = []
+        with fitz.open(path) as document:
+            for number in page_numbers:
+                if number < 1 or number > document.page_count:
+                    raise ValueError(f"Invalid page number: {number}")
+                results.append({"page": number, "text": document.load_page(number - 1).get_text("text")})
+        return results
 
     def select_evidence_pages(self, artifact: DeepReadArtifact, max_pages: int = 6) -> list[int]:
         """Pick the page numbers of the highest-scoring chunks, for rendering to images."""

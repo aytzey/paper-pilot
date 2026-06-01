@@ -94,6 +94,17 @@ def test_read_pdf_document_defaults_to_path_and_link(tmp_path: Path, monkeypatch
     assert not any(isinstance(block, EmbeddedResource) for block in out)
 
 
+def test_get_pdf_page_text_returns_page_text(tmp_path: Path, monkeypatch) -> None:
+    _patch_settings(tmp_path, monkeypatch)
+    pdf = tmp_path / "x.pdf"
+    _make_pdf(pdf, pages=2)
+    out = server.get_pdf_page_text(str(pdf), [1, 2])
+    assert isinstance(out, dict)
+    assert out["pdf_path"] and out["doc_id"]
+    assert [p["page"] for p in out["pages"]] == [1, 2]
+    assert "transformer" in out["pages"][0]["text"].lower()
+
+
 def test_read_pdf_document_size_guard(tmp_path: Path, monkeypatch) -> None:
     _patch_settings(tmp_path, monkeypatch)
     pdf = tmp_path / "x.pdf"

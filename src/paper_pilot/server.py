@@ -405,6 +405,18 @@ def read_pdf_document(
 
 
 @mcp.tool()
+def get_pdf_page_text(pdf_path: str, page_numbers: list[int]) -> dict:
+    """Return the exact extracted text of specific PDF pages (1-based) as plain JSON.
+
+    For fine-grained lookups over the wire (a single reference entry, a table, a footnote) without
+    base64 and without filesystem/shell access. Use deep_read_topic first to get the pdf_path and the
+    page mapping (deep_reads[*].chunk_manifest_path), then fetch the exact pages you need here."""
+    path = content.safe_pdf_path(pdf_path, get_settings())
+    pages = get_deep_read_service().page_text(path, page_numbers)
+    return {"pdf_path": str(path), "doc_id": register_pdf(path), "pages": pages}
+
+
+@mcp.tool()
 async def search_libgen(
     query: str,
     search_type: str = "title",
@@ -713,6 +725,7 @@ async def deep_read_topic(
     agent_notes = [
         "Local PDF paths are in pdf_paths (also deep_reads[*].pdf_path); open them directly when you need the file.",
         "For figures/tables, call render_pdf_pages on a pdf_path; for text comparison use text_path and chunk_manifest_path.",
+        "top_chunks is a keyword-ranked preview; for an exact detail on a known page call get_pdf_page_text(pdf_path, [page]) (full page text, no shell needed).",
     ]
     result = {
         "topic": topic,

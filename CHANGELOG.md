@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.2 - 2026-06-01
+
+### Added
+- New **`get_pdf_page_text(pdf_path, page_numbers)`** tool: returns the exact extracted text of
+  specific pages as plain JSON, so clients without filesystem/shell access (e.g. Claude API
+  integrations) can pull a single fine-grained detail (a reference entry, a table) over the wire.
+  `deep_read_topic` agent_notes now point to it for known-page lookups.
+
+### Fixed
+- The chunk manifest (`{stem}.chunks.json`) now stores full, untruncated chunk text. It is a
+  sidecar file, not an MCP payload, so the 1200-char preview cap no longer applies there.
+
 ## 0.6.1 - 2026-06-01
 
 ### Changed

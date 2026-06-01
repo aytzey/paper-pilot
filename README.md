@@ -150,6 +150,7 @@ paper-pilot --transport streamable-http --host 127.0.0.1 --port 8000
 | `graph_topic` | Render an interactive citation / relatedness graph (HTML) for a topic |
 | `render_pdf_pages` | Render PDF pages as images the model can see (figures, tables, layout) |
 | `read_pdf_document` | Return a downloaded PDF's local path and resource link (embed base64 only on request) |
+| `get_pdf_page_text` | Exact text of specific PDF pages as JSON, for fine-grained lookups (no base64) |
 | `search_literature` | Fine-grained multi-source academic search (6 databases) |
 | `find_similar_papers` | Related work expansion from a seed paper |
 | `inspect_open_access_pdf` | OA availability check and PDF preview |
