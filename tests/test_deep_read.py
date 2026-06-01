@@ -64,6 +64,29 @@ def test_extract_document_writes_text_and_chunk_manifest(tmp_path: Path) -> None
     assert any("transformer" in chunk.keyword_hits for chunk in artifact.chunks)
 
 
+def test_page_count(tmp_path: Path) -> None:
+    pdf_path = tmp_path / "p.pdf"
+    _make_pdf(pdf_path)
+    service = DeepReadingService(_settings(tmp_path))
+    assert service.page_count(pdf_path) == 2
+
+
+def test_select_evidence_pages_bounded(tmp_path: Path) -> None:
+    pdf_path = tmp_path / "p.pdf"
+    _make_pdf(pdf_path)
+    service = DeepReadingService(_settings(tmp_path))
+    document = DownloadedDocument(
+        paper=PaperRecord(source="test", source_id="1", title="Transformer Paper"),
+        path=pdf_path,
+        page_count=2,
+        extracted_preview="",
+    )
+    artifact = service.extract_document(document, research_question="transformer benchmark results")
+    pages = service.select_evidence_pages(artifact, max_pages=1)
+    assert len(pages) <= 1
+    assert all(1 <= page <= 2 for page in pages)
+
+
 def test_render_pages_exports_pngs(tmp_path: Path) -> None:
     pdf_path = tmp_path / "figures.pdf"
     _make_pdf(pdf_path)

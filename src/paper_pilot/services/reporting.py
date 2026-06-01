@@ -268,6 +268,7 @@ class ReportService:
     def write_report(self, topic: str, markdown: str) -> Path:
         filename = f"{slugify(topic)}-{utc_timestamp()}.md"
         destination = self.settings.data_dir / "reports" / filename
+        destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(markdown, encoding="utf-8")
         return destination
 

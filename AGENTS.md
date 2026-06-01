@@ -33,9 +33,10 @@ For most research tasks, use tools in this order:
 1. `healthcheck`
 2. `research_topic` for broad discovery and report generation
 3. `deep_read_topic` when you need evidence chunks and local PDF access
-4. `render_pdf_pages` when visual inspection matters
-5. `graph_topic` (or `write_graph=True`) when a citation/relatedness map helps
-6. `list_zotero_collections` before writing into an existing collection
+4. `render_pdf_pages` when visual inspection matters (returns the pages as images you can see)
+5. `read_pdf_document` to read a downloaded PDF natively (embedded application/pdf), where your client supports it
+6. `graph_topic` (or `write_graph=True`) when a citation/relatedness map helps
+7. `list_zotero_collections` before writing into an existing collection
 
 Use `search_literature` and `find_similar_papers` when you want fine-grained control instead of the bundled pipeline.
 
@@ -92,6 +93,7 @@ The implementation is organized around service modules:
 - `services/scihub.py`: Sci-Hub paper resolution and download (opt-in)
 - `services/reporting.py`: report generation and synthesis comparison tables
 - `services/graphing.py`: interactive citation-graph HTML export
+- `services/content.py`: PDF/image MCP content blocks (page images, embedded PDF, resource links)
 - `services/net.py`: SSRF guard and size-capped downloads
 
 Tool entry points are defined in [src/paper_pilot/server.py](src/paper_pilot/server.py).

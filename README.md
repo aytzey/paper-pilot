@@ -70,7 +70,7 @@ Your AI will:
 2. Find the open-access PDFs, not abstracts
 3. Download and read them cover to cover
 4. Extract evidence chunks with source attribution
-5. Render specific pages so it can *see* the figures and tables
+5. Hand the model the actual pages as images and the actual PDF, so it *sees* the figures and reads the paper natively
 6. Write a structured Markdown report
 7. Save everything into your **Zotero** library
 
@@ -148,7 +148,8 @@ paper-pilot --transport streamable-http --host 127.0.0.1 --port 8000
 | `research_topic` | Full pipeline: search, download, report, optional citation graph + Zotero sync |
 | `deep_read_topic` | Everything above + full-text extraction with evidence chunks |
 | `graph_topic` | Render an interactive citation / relatedness graph (HTML) for a topic |
-| `render_pdf_pages` | PDF pages to PNG for figure and table inspection |
+| `render_pdf_pages` | Render PDF pages as images the model can see (figures, tables, layout) |
+| `read_pdf_document` | Hand a downloaded PDF to the model as an embedded `application/pdf` resource |
 | `search_literature` | Fine-grained multi-source academic search (6 databases) |
 | `find_similar_papers` | Related work expansion from a seed paper |
 | `inspect_open_access_pdf` | OA availability check and PDF preview |
@@ -210,6 +211,9 @@ INSECURE_SHADOW_TLS=false              # opt in to skip TLS verification for Sci
 # Storage
 PAPER_PILOT_DATA_DIR=./data
 MAX_DOWNLOAD_MB=75                     # per-PDF download size cap
+PAPER_PILOT_ALLOW_EXTERNAL_PDF=true   # read PDFs outside the data dir (set false on networked transports)
+PDF_EMBED_MAX_MB=5                     # size cap for an embedded PDF resource
+PDF_EMBED_MAX_PAGES=60                 # page cap for an embedded PDF resource
 
 # Institutional networks
 HTTP_PROXY=
@@ -235,6 +239,7 @@ src/paper_pilot/
     zotero.py            Local and web Zotero integration
     reporting.py         Markdown report + synthesis comparison tables
     graphing.py          Interactive citation-graph HTML export
+    content.py           PDF/image MCP content blocks (pages as images, embedded PDF)
     libgen.py            Supplementary LibGen support
     net.py               SSRF guard + size-capped downloads
 ```
@@ -245,10 +250,10 @@ Architecture details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ## For AI agents
 
-- [AGENTS.md](AGENTS.md) -- shared operating guide
-- [CLAUDE.md](CLAUDE.md) -- Claude Desktop and Claude Code setup
-- [CODEX.md](CODEX.md) -- Codex setup
-- [docs/CLIENTS.md](docs/CLIENTS.md) -- side-by-side client comparison
+- [AGENTS.md](AGENTS.md): shared operating guide
+- [CLAUDE.md](CLAUDE.md): Claude Desktop and Claude Code setup
+- [CODEX.md](CODEX.md): Codex setup
+- [docs/CLIENTS.md](docs/CLIENTS.md): side-by-side client comparison
 
 ---
 

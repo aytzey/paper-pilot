@@ -31,6 +31,9 @@ class Settings:
     scihub_enabled: bool = False
     max_download_bytes: int = 75 * 1024 * 1024
     insecure_shadow_tls: bool = False
+    allow_external_pdf_paths: bool = True
+    pdf_embed_max_mb: float = 5.0
+    pdf_embed_max_pages: int = 60
 
     @property
     def effective_zotero_library_id(self) -> str | None:
@@ -122,6 +125,7 @@ def load_settings() -> Settings:
     zotero_local = os.getenv("ZOTERO_LOCAL", "").strip().lower() in truthy
     scihub_enabled = os.getenv("SCIHUB_ENABLED", "false").strip().lower() in truthy
     insecure_shadow_tls = os.getenv("INSECURE_SHADOW_TLS", "false").strip().lower() in truthy
+    allow_external_pdf_paths = os.getenv("PAPER_PILOT_ALLOW_EXTERNAL_PDF", "true").strip().lower() in truthy
     scihub_mirrors = tuple(
         m.strip().rstrip("/")
         for m in os.getenv(
@@ -153,4 +157,7 @@ def load_settings() -> Settings:
         scihub_enabled=scihub_enabled,
         max_download_bytes=max(_env_int("MAX_DOWNLOAD_MB", 75), 1) * 1024 * 1024,
         insecure_shadow_tls=insecure_shadow_tls,
+        allow_external_pdf_paths=allow_external_pdf_paths,
+        pdf_embed_max_mb=_env_float("PDF_EMBED_MAX_MB", 5.0),
+        pdf_embed_max_pages=_env_int("PDF_EMBED_MAX_PAGES", 60),
     )

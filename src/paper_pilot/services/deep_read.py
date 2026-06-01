@@ -185,6 +185,29 @@ class DeepReadingService:
                 renders.append(destination)
         return renders
 
+    def page_count(self, pdf_path: str | Path) -> int:
+        path = Path(pdf_path).expanduser().resolve()
+        with fitz.open(path) as document:
+            return document.page_count
+
+    def select_evidence_pages(self, artifact: DeepReadArtifact, max_pages: int = 6) -> list[int]:
+        """Pick the page numbers of the highest-scoring chunks, for rendering to images."""
+        ranked = sorted(
+            artifact.chunks,
+            key=lambda chunk: (chunk.score or 0.0, -chunk.chunk_index),
+            reverse=True,
+        )
+        pages: list[int] = []
+        for chunk in ranked:
+            if (chunk.score or 0.0) <= 0:
+                continue
+            for page in range(chunk.start_page, chunk.end_page + 1):
+                if 1 <= page <= artifact.page_count and page not in pages:
+                    pages.append(page)
+                    if len(pages) >= max_pages:
+                        return pages
+        return pages
+
     def _read_pdf_pages(self, pdf_path: Path) -> tuple[list[tuple[int, str]], int, str]:
         with fitz.open(pdf_path) as document:
             blocks: list[tuple[int, str]] = []

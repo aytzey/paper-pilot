@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import logging
 from functools import lru_cache
+from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
 from paper_pilot.config import Settings, load_settings
 from paper_pilot.models import PaperRecord
+from paper_pilot.services import content
 from paper_pilot.services.academic import AcademicSearchService
+from paper_pilot.services.content import PdfTooLargeError
 from paper_pilot.services.deep_read import DeepReadingService
 from paper_pilot.services.graphing import GraphService
 from paper_pilot.services.libgen import LibgenService
@@ -73,6 +76,28 @@ def _require_scihub_enabled() -> None:
 
 def get_zotero_service() -> ZoteroService:
     return ZoteroService(get_settings())
+
+
+# Maps a stable doc_id -> resolved PDF path so the pdf_resource handler can serve
+# downloaded PDFs by id (the id is a hash, never raw filesystem input).
+_PDF_REGISTRY: dict[str, Path] = {}
+
+
+def register_pdf(pdf_path: str | Path) -> str:
+    """Register a local PDF and return its stable doc_id (for resource reads)."""
+    resolved = Path(pdf_path).expanduser().resolve()
+    doc_id = content.stable_doc_id(resolved)
+    _PDF_REGISTRY[doc_id] = resolved
+    return doc_id
+
+
+@mcp.resource("paperpilot://pdf/{doc_id}", mime_type="application/pdf")
+def pdf_resource(doc_id: str) -> bytes:
+    """Serve a registered PDF by id as application/pdf bytes."""
+    path = _PDF_REGISTRY.get(doc_id)
+    if path is None:
+        raise ValueError(f"Unknown PDF id: {doc_id}")
+    return content.safe_pdf_path(path, get_settings()).read_bytes()
 
 
 async def _run_research_pipeline(
@@ -296,7 +321,9 @@ async def graph_topic(
 async def inspect_open_access_pdf(pdf_url: str, filename_hint: str = "paper") -> dict:
     """Download an open-access PDF and return a local preview."""
     document = await get_open_access_service().inspect_remote_pdf(pdf_url, filename_hint)
-    return document.to_dict()
+    payload = document.to_dict()
+    payload["doc_id"] = register_pdf(document.path)
+    return payload
 
 
 @mcp.tool()
@@ -324,13 +351,58 @@ def render_pdf_pages(
     pdf_path: str,
     page_numbers: list[int],
     scale: float = 2.0,
-) -> dict:
-    """Render selected PDF pages to PNG so the agent can inspect figures, tables, and layout."""
+    include_images: bool = True,
+) -> list:
+    """Render selected PDF pages to PNG and return them as images the model can see.
+
+    The result is [metadata_dict, image, image, ...]: the dict keeps `pdf_path` and
+    `images` (local PNG paths) for path-based clients, and the trailing image blocks
+    let a vision-capable model inspect figures, tables, and layout directly. Set
+    include_images=False to return only the paths."""
     image_paths = get_deep_read_service().render_pages(pdf_path=pdf_path, page_numbers=page_numbers, scale=scale)
-    return {
+    doc_id = register_pdf(pdf_path)
+    meta = {
         "pdf_path": str(pdf_path),
+        "doc_id": doc_id,
         "images": [str(path) for path in image_paths],
     }
+    if not include_images:
+        return [meta]
+    return [meta, *content.images_from_paths(image_paths)]
+
+
+@mcp.tool()
+def read_pdf_document(
+    pdf_path: str,
+    max_pages: int = 60,
+    max_mb: float = 5.0,
+    as_resource_link: bool = False,
+) -> list:
+    """Hand a downloaded PDF to the model as an embedded application/pdf resource.
+
+    Returns [metadata_dict, resource]. Modern Claude and Codex read PDFs natively, so this
+    lets the model use the whole paper (text, layout, and figures), bounded by max_pages and
+    max_mb. Note: some clients (e.g. Claude Desktop) may not forward embedded PDFs to the
+    model and cap embedded resources around 1 MB; for figures prefer render_pdf_pages, and in
+    Claude Code you can open the returned pdf_path directly. Set as_resource_link=True to
+    return a link instead of inlining the bytes."""
+    settings = get_settings()
+    path = content.safe_pdf_path(pdf_path, settings)
+    doc_id = register_pdf(path)
+    meta = {
+        "pdf_path": str(path),
+        "doc_id": doc_id,
+        "page_count": get_deep_read_service().page_count(path),
+        "size_bytes": path.stat().st_size,
+        "note": (
+            "Embedded PDF is consumed by PDF-capable clients; Claude Desktop may not forward it. "
+            "For figures use render_pdf_pages; Claude Code can read pdf_path directly."
+        ),
+    }
+    if as_resource_link:
+        return [meta, content.pdf_resource_link(doc_id, name=path.name, size_bytes=meta["size_bytes"])]
+    block = content.to_pdf_embedded_resource(path, doc_id=doc_id, max_mb=max_mb, max_pages=max_pages)
+    return [meta, block]
 
 
 @mcp.tool()
@@ -375,7 +447,9 @@ async def inspect_libgen_item(
         "Size": size or "",
     }
     document = await get_libgen_service().download_preview(item, topic_hint=title)
-    return document.to_dict()
+    payload = document.to_dict()
+    payload["doc_id"] = register_pdf(document.path)
+    return payload
 
 
 @mcp.tool()
@@ -410,7 +484,9 @@ async def download_scihub_paper(
     _require_scihub_enabled()
     service = get_scihub_service()
     document = await service.download_paper(doi=doi, topic_hint=topic_hint)
-    return document.to_dict()
+    payload = document.to_dict()
+    payload["doc_id"] = register_pdf(document.path)
+    return payload
 
 
 @mcp.tool()
@@ -542,10 +618,21 @@ async def deep_read_topic(
     create_collection_name: str | None = None,
     attach_pdfs: bool = True,
     write_graph: bool = False,
-) -> dict:
+    render_top_pages: bool = True,
+    max_render_pages: int = 6,
+    render_scale: float = 2.0,
+    attach_top_pdf: bool = True,
+    attach_pdf_max_mb: float = 5.0,
+    attach_pdf_max_pages: int = 60,
+) -> list:
     """Search, download, extract full text, and return evidence chunks plus local PDF paths for direct inspection.
-    Set include_scihub=True to use Sci-Hub as a fallback for papers without open-access PDFs.
-    Set write_graph=True to also render an interactive citation graph HTML (path returned as graph_path)."""
+
+    The result is [result_dict, ...content]: result_dict holds the JSON (deep_reads, report_path,
+    downloads, warnings, agent_notes, ...). By default the top paper's most relevant pages are also
+    rendered as images and its PDF is embedded as an application/pdf resource, so a PDF-capable model
+    can see the figures and read the whole paper. Set render_top_pages=False / attach_top_pdf=False to
+    skip those (cheaper). include_scihub=True adds a Sci-Hub fallback; write_graph=True also renders a
+    citation graph (path in graph_path)."""
     question = research_question or topic
     pipeline = await _run_research_pipeline(
         topic=topic,
@@ -622,7 +709,11 @@ async def deep_read_topic(
             attach_pdfs=attach_pdfs,
         )
 
-    return {
+    agent_notes = [
+        "For figures and tables, open the PDF directly via deep_reads[*].pdf_path.",
+        "For text-based comparison, use deep_reads[*].text_path and chunk_manifest_path.",
+    ]
+    result = {
         "topic": topic,
         "research_question": question,
         "report_path": str(report_path),
@@ -635,8 +726,45 @@ async def deep_read_topic(
         "deep_reads": [artifact.to_dict(top_chunks=top_chunks_per_paper) for artifact in artifacts],
         "zotero": zotero_sync,
         "report_markdown": markdown,
-        "agent_notes": [
-            "For figures and tables, open the PDF directly via deep_reads[*].pdf_path.",
-            "For text-based comparison, use deep_reads[*].text_path and chunk_manifest_path.",
-        ],
+        "agent_notes": agent_notes,
     }
+
+    # Hand the top paper to a PDF-capable model directly: render its most relevant
+    # pages as images and embed the PDF itself. Both are bounded and degrade to warnings.
+    extra: list = []
+    if artifacts:
+        top_artifact = max(
+            artifacts,
+            key=lambda art: max((chunk.score or 0.0 for chunk in art.chunks), default=0.0),
+        )
+        if render_top_pages:
+            try:
+                pages = deep_read_service.select_evidence_pages(top_artifact, max_pages=max_render_pages)
+                if pages:
+                    image_paths = deep_read_service.render_pages(str(top_artifact.pdf_path), pages, render_scale)
+                    register_pdf(top_artifact.pdf_path)
+                    result["rendered_pages"] = {
+                        "pdf_path": str(top_artifact.pdf_path),
+                        "pages": pages,
+                        "images": [str(path) for path in image_paths],
+                    }
+                    extra.extend(content.images_from_paths(image_paths))
+                    agent_notes.append("Top-paper pages are attached as images below; inspect figures/tables there.")
+            except Exception as exc:  # rendering is best-effort
+                all_warnings.append(f"Top-page rendering skipped: {exc}")
+        if attach_top_pdf:
+            try:
+                doc_id = register_pdf(top_artifact.pdf_path)
+                block = content.to_pdf_embedded_resource(
+                    Path(top_artifact.pdf_path),
+                    doc_id=doc_id,
+                    max_mb=attach_pdf_max_mb,
+                    max_pages=attach_pdf_max_pages,
+                )
+                result["attached_pdf"] = {"pdf_path": str(top_artifact.pdf_path), "doc_id": doc_id}
+                extra.append(block)
+                agent_notes.append("The top paper's full PDF is embedded below; read it directly if your client supports PDFs.")
+            except (PdfTooLargeError, ValueError, FileNotFoundError) as exc:
+                all_warnings.append(f"Top-PDF embed skipped: {exc}")
+
+    return [result, *extra]

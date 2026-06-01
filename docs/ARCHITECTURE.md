@@ -66,6 +66,10 @@ Produces Markdown reports for both standard research and deep-read workflows, in
 
 Builds a nodes/edges model from the search results (node size ∝ citation count, color by year; edges from shared keywords, shared venue, and similarity links) and renders a self-contained interactive vis-network HTML map.
 
+### `services/content.py`
+
+Builds MCP content blocks from local files so a PDF-capable model receives the real artifact: page renders as `ImageContent`, the PDF itself as an embedded `application/pdf` resource (bounded by size and page count), and resource links. Includes `safe_pdf_path` for path-traversal protection.
+
 ### `services/net.py`
 
 Shared network safety: an SSRF guard (`is_public_http_url`) that blocks loopback/private/link-local/cloud-metadata targets and non-HTTP schemes, plus size-capped streaming download helpers used by every PDF fetch path.

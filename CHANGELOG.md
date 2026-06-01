@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.6.0 - 2026-06-01
+
+### Added
+- **Native PDF usage for PDF-capable models.** `render_pdf_pages` now returns the pages as
+  real images (the model sees figures, tables, and layout), not just PNG paths.
+- New **`read_pdf_document`** tool returns a downloaded PDF as an embedded `application/pdf`
+  resource (or a resource link), bounded by `PDF_EMBED_MAX_MB` / `PDF_EMBED_MAX_PAGES`.
+- `deep_read_topic` now, by default, renders the top paper's most relevant pages as images and
+  embeds that PDF (controllable via `render_top_pages` / `attach_top_pdf`; degrades to warnings).
+- Downloaded PDFs are exposed as MCP resources (`paperpilot://pdf/{doc_id}`); download tools
+  return a `doc_id`.
+- New `services/content.py` (page images, embedded PDF, resource links, `safe_pdf_path`).
+
+### Config
+- new: `PAPER_PILOT_ALLOW_EXTERNAL_PDF` (default true), `PDF_EMBED_MAX_MB`, `PDF_EMBED_MAX_PAGES`.
+
+### Fixed
+- `ReportService.write_report` now creates the reports directory if missing.
+
 ## 0.5.0 - 2026-06-01
 
 ### Added
