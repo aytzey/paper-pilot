@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "paper-pilot": {
+      "command": "uv",
+      "args": ["--directory", "/absolute/path/to/paper-pilot", "run", "paper-pilot"],
+      "env": {
+        "OPENALEX_EMAIL": "you@example.com",
+        "UNPAYWALL_EMAIL": "you@example.com",
+        "ZOTERO_LOCAL": "true",
+        "ZOTERO_LIBRARY_TYPE": "user"
+      }
+    }
+  }
+}

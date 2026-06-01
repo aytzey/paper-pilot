@@ -13,6 +13,7 @@ import asyncio
 import os
 import sys
 import webbrowser
+from pathlib import Path
 
 _PLACEHOLDER_EMAIL = "paper-pilot-demo@example.com"
 
@@ -65,7 +66,9 @@ def run_demo(
 
     if open_browser and graph_path:
         try:
-            webbrowser.open(f"file://{graph_path}")
+            # Path.as_uri() emits a valid file URI on every OS (file:///C:/... on Windows,
+            # file:///home/... on POSIX); f"file://{path}" is malformed for Windows paths.
+            webbrowser.open(Path(graph_path).as_uri())
         except Exception:  # pragma: no cover - headless environments
             pass
     return result

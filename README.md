@@ -92,9 +92,11 @@ Your AI will:
 
 ## MCP client setup
 
+Works on Claude Desktop, Cursor, Claude Code, and Codex, across Windows, macOS, and Linux. Full per-OS config-file locations, the Windows `spawn uv ENOENT` fix, and a per-client capability matrix are in [docs/CLIENTS.md](docs/CLIENTS.md).
+
 ### Claude Desktop
 
-Add to your `claude_desktop_config.json`:
+Add to `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/`, Windows: `%APPDATA%\Claude\`; Claude Desktop has no Linux build, so use Claude Code on Linux):
 
 ```json
 {
@@ -132,6 +134,26 @@ args = ["--directory", "/path/to/paper-pilot", "run", "paper-pilot"]
 OPENALEX_EMAIL = "you@example.com"
 ZOTERO_LOCAL = "true"
 ```
+
+### Cursor
+
+Put this at `.cursor/mcp.json` (this repo) or `~/.cursor/mcp.json` (global), then enable it in Settings (`Cmd/Ctrl+Shift+J`) under Model Context Protocol. See [examples/cursor.mcp.json](examples/cursor.mcp.json).
+
+```json
+{
+  "mcpServers": {
+    "paper-pilot": {
+      "command": "uv",
+      "args": ["--directory", "/path/to/paper-pilot", "run", "paper-pilot"],
+      "env": { "OPENALEX_EMAIL": "you@example.com", "UNPAYWALL_EMAIL": "you@example.com", "ZOTERO_LOCAL": "true" }
+    }
+  }
+}
+```
+
+### Windows note
+
+Claude Desktop and Cursor spawn the command without a shell, so a bare `uv`/`uvx` can fail with `spawn uv ENOENT`. Wrap it (`"command": "cmd", "args": ["/c", "uv", "--directory", "C:\\path\\to\\paper-pilot", "run", "paper-pilot"]`) or use the full path from `where uv`.
 
 ### Streamable HTTP mode
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.3 - 2026-06-01
+
+### Fixed
+- `paper-pilot demo` now opens the citation graph via `Path.as_uri()`, so it works on Windows
+  (the old `file://` string interpolation produced a malformed URI for Windows paths).
+
+### Docs
+- Cross-platform, cross-client setup. `docs/CLIENTS.md` rewritten with per-OS config-file locations
+  (Claude Desktop, Cursor, Claude Code, Codex), the Windows `spawn uv ENOENT` fix, prerequisites
+  (uv install, PyMuPDF wheels), and a per-client PDF-capability matrix. Added `examples/cursor.mcp.json`
+  and a Cursor + Windows section to the README.
+
 ## 0.6.2 - 2026-06-01
 
 ### Added
