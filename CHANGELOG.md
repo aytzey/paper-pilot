@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.1 - 2026-06-01
+
+### Changed
+- PDF content now defaults to **file paths, not base64**. `deep_read_topic` returns every
+  downloaded PDF's local path in `pdf_paths` (no inlined images or PDF by default); set
+  `render_top_pages=True` / `attach_top_pdf=True` to opt into base64 for clients that read it.
+- `read_pdf_document` defaults to returning the local path plus a `paperpilot://pdf/{doc_id}`
+  resource link; pass `embed_base64=True` to inline the PDF. Keeps payloads small for clients
+  (e.g. Codex) that open files from disk or fetch the resource on demand.
+
 ## 0.6.0 - 2026-06-01
 
 ### Added

@@ -374,18 +374,17 @@ def render_pdf_pages(
 @mcp.tool()
 def read_pdf_document(
     pdf_path: str,
+    embed_base64: bool = False,
     max_pages: int = 60,
     max_mb: float = 5.0,
-    as_resource_link: bool = False,
 ) -> list:
-    """Hand a downloaded PDF to the model as an embedded application/pdf resource.
+    """Return a downloaded PDF's local path so a client can open the file when it needs it.
 
-    Returns [metadata_dict, resource]. Modern Claude and Codex read PDFs natively, so this
-    lets the model use the whole paper (text, layout, and figures), bounded by max_pages and
-    max_mb. Note: some clients (e.g. Claude Desktop) may not forward embedded PDFs to the
-    model and cap embedded resources around 1 MB; for figures prefer render_pdf_pages, and in
-    Claude Code you can open the returned pdf_path directly. Set as_resource_link=True to
-    return a link instead of inlining the bytes."""
+    By default nothing is base64-inlined: the result is [metadata, resource_link] where metadata
+    carries pdf_path / doc_id / page_count / size_bytes. The PDF stays on disk; clients that read
+    local files (e.g. Claude Code) or fetch the paperpilot://pdf/{doc_id} resource use it without
+    payload bloat. Set embed_base64=True to inline the PDF as an application/pdf resource for clients
+    that read PDFs that way (Claude API integrations), bounded by max_mb / max_pages."""
     settings = get_settings()
     path = content.safe_pdf_path(pdf_path, settings)
     doc_id = register_pdf(path)
@@ -395,14 +394,14 @@ def read_pdf_document(
         "page_count": get_deep_read_service().page_count(path),
         "size_bytes": path.stat().st_size,
         "note": (
-            "Embedded PDF is consumed by PDF-capable clients; Claude Desktop may not forward it. "
-            "For figures use render_pdf_pages; Claude Code can read pdf_path directly."
+            "Open pdf_path directly, or fetch the paperpilot://pdf/{doc_id} resource. "
+            "Pass embed_base64=true only if your client reads inlined application/pdf bytes."
         ),
     }
-    if as_resource_link:
-        return [meta, content.pdf_resource_link(doc_id, name=path.name, size_bytes=meta["size_bytes"])]
-    block = content.to_pdf_embedded_resource(path, doc_id=doc_id, max_mb=max_mb, max_pages=max_pages)
-    return [meta, block]
+    if embed_base64:
+        block = content.to_pdf_embedded_resource(path, doc_id=doc_id, max_mb=max_mb, max_pages=max_pages)
+        return [meta, block]
+    return [meta, content.pdf_resource_link(doc_id, name=path.name, size_bytes=meta["size_bytes"])]
 
 
 @mcp.tool()
@@ -618,21 +617,21 @@ async def deep_read_topic(
     create_collection_name: str | None = None,
     attach_pdfs: bool = True,
     write_graph: bool = False,
-    render_top_pages: bool = True,
+    render_top_pages: bool = False,
     max_render_pages: int = 6,
     render_scale: float = 2.0,
-    attach_top_pdf: bool = True,
+    attach_top_pdf: bool = False,
     attach_pdf_max_mb: float = 5.0,
     attach_pdf_max_pages: int = 60,
 ) -> list:
     """Search, download, extract full text, and return evidence chunks plus local PDF paths for direct inspection.
 
-    The result is [result_dict, ...content]: result_dict holds the JSON (deep_reads, report_path,
-    downloads, warnings, agent_notes, ...). By default the top paper's most relevant pages are also
-    rendered as images and its PDF is embedded as an application/pdf resource, so a PDF-capable model
-    can see the figures and read the whole paper. Set render_top_pages=False / attach_top_pdf=False to
-    skip those (cheaper). include_scihub=True adds a Sci-Hub fallback; write_graph=True also renders a
-    citation graph (path in graph_path)."""
+    By default the result is just [result_dict]: it carries every downloaded PDF's local path in
+    `pdf_paths` (and in deep_reads[*].pdf_path / downloads[*].pdf_path), so a client can open the
+    files when needed without any base64 in the payload. Opt in to inline content when your client
+    benefits: render_top_pages=True appends the top paper's relevant pages as images (vision models);
+    attach_top_pdf=True embeds its PDF as an application/pdf resource (Claude API style). include_scihub=True
+    adds a Sci-Hub fallback; write_graph=True also renders a citation graph (path in graph_path)."""
     question = research_question or topic
     pipeline = await _run_research_pipeline(
         topic=topic,
@@ -709,15 +708,18 @@ async def deep_read_topic(
             attach_pdfs=attach_pdfs,
         )
 
+    for artifact in artifacts:
+        register_pdf(artifact.pdf_path)
     agent_notes = [
-        "For figures and tables, open the PDF directly via deep_reads[*].pdf_path.",
-        "For text-based comparison, use deep_reads[*].text_path and chunk_manifest_path.",
+        "Local PDF paths are in pdf_paths (also deep_reads[*].pdf_path); open them directly when you need the file.",
+        "For figures/tables, call render_pdf_pages on a pdf_path; for text comparison use text_path and chunk_manifest_path.",
     ]
     result = {
         "topic": topic,
         "research_question": question,
         "report_path": str(report_path),
         "graph_path": graph_path,
+        "pdf_paths": [str(artifact.pdf_path) for artifact in artifacts],
         "warnings": all_warnings,
         "top_papers": [paper.to_dict() for paper in top_papers],
         "related_papers": [paper.to_dict() for paper in related_papers],

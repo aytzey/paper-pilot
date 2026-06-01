@@ -34,7 +34,7 @@ For most research tasks, use tools in this order:
 2. `research_topic` for broad discovery and report generation
 3. `deep_read_topic` when you need evidence chunks and local PDF access
 4. `render_pdf_pages` when visual inspection matters (returns the pages as images you can see)
-5. `read_pdf_document` to read a downloaded PDF natively (embedded application/pdf), where your client supports it
+5. `read_pdf_document` to get a downloaded PDF's local path + resource link (pass embed_base64=true only if your client reads inlined PDFs)
 6. `graph_topic` (or `write_graph=True`) when a citation/relatedness map helps
 7. `list_zotero_collections` before writing into an existing collection
 

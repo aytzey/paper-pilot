@@ -78,18 +78,20 @@ def test_read_pdf_document_embeds_pdf(tmp_path: Path, monkeypatch) -> None:
     _patch_settings(tmp_path, monkeypatch)
     pdf = tmp_path / "x.pdf"
     _make_pdf(pdf)
-    out = server.read_pdf_document(str(pdf))
+    out = server.read_pdf_document(str(pdf), embed_base64=True)
     assert out[0]["pdf_path"] and out[0]["page_count"] == 2
     assert isinstance(out[1], EmbeddedResource)
     assert base64.b64decode(out[1].resource.blob).startswith(b"%PDF")
 
 
-def test_read_pdf_document_resource_link(tmp_path: Path, monkeypatch) -> None:
+def test_read_pdf_document_defaults_to_path_and_link(tmp_path: Path, monkeypatch) -> None:
     _patch_settings(tmp_path, monkeypatch)
     pdf = tmp_path / "x.pdf"
     _make_pdf(pdf)
-    out = server.read_pdf_document(str(pdf), as_resource_link=True)
+    out = server.read_pdf_document(str(pdf))  # default: no base64
+    assert out[0]["pdf_path"]
     assert isinstance(out[1], ResourceLink)
+    assert not any(isinstance(block, EmbeddedResource) for block in out)
 
 
 def test_read_pdf_document_size_guard(tmp_path: Path, monkeypatch) -> None:
@@ -97,7 +99,7 @@ def test_read_pdf_document_size_guard(tmp_path: Path, monkeypatch) -> None:
     pdf = tmp_path / "x.pdf"
     _make_pdf(pdf)
     with pytest.raises(PdfTooLargeError):
-        server.read_pdf_document(str(pdf), max_mb=0.00001)
+        server.read_pdf_document(str(pdf), embed_base64=True, max_mb=0.00001)
 
 
 def test_deep_read_topic_attaches_images_and_pdf(tmp_path: Path, monkeypatch) -> None:
@@ -122,14 +124,17 @@ def test_deep_read_topic_attaches_images_and_pdf(tmp_path: Path, monkeypatch) ->
 
     monkeypatch.setattr(server, "_run_research_pipeline", fake_pipeline)
 
-    out = asyncio.run(server.deep_read_topic("transformer benchmark", download_top_n=1))
+    out = asyncio.run(
+        server.deep_read_topic("transformer benchmark", download_top_n=1, render_top_pages=True, attach_top_pdf=True)
+    )
     assert isinstance(out, list)
     result = out[0]
     assert isinstance(result, dict)
-    # backward-compat keys preserved
-    for key in ("deep_reads", "report_path", "downloads", "warnings", "agent_notes"):
+    # backward-compat keys preserved + all PDF paths surfaced
+    for key in ("deep_reads", "report_path", "downloads", "warnings", "agent_notes", "pdf_paths"):
         assert key in result
-    # default escalation: page images + embedded PDF in the trailing content
+    assert result["pdf_paths"]
+    # opt-in escalation: page images + embedded PDF in the trailing content
     assert any(isinstance(block, Image) for block in out[1:])
     assert any(isinstance(block, EmbeddedResource) for block in out[1:])
     assert "rendered_pages" in result and "attached_pdf" in result
@@ -157,8 +162,7 @@ def test_deep_read_topic_escalation_off(tmp_path: Path, monkeypatch) -> None:
 
     monkeypatch.setattr(server, "_run_research_pipeline", fake_pipeline)
 
-    out = asyncio.run(
-        server.deep_read_topic("topic", download_top_n=1, render_top_pages=False, attach_top_pdf=False)
-    )
+    out = asyncio.run(server.deep_read_topic("topic", download_top_n=1))  # defaults: paths only, no base64
     assert isinstance(out, list)
-    assert len(out) == 1  # only the result dict, no content blocks
+    assert len(out) == 1  # only the result dict, no inlined content blocks
+    assert out[0]["pdf_paths"]  # file paths still surfaced

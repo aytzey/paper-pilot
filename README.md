@@ -70,7 +70,7 @@ Your AI will:
 2. Find the open-access PDFs, not abstracts
 3. Download and read them cover to cover
 4. Extract evidence chunks with source attribution
-5. Hand the model the actual pages as images and the actual PDF, so it *sees* the figures and reads the paper natively
+5. Give the model every PDF's local path to open on demand, and render pages as images or embed the PDF when you ask for it
 6. Write a structured Markdown report
 7. Save everything into your **Zotero** library
 
@@ -149,7 +149,7 @@ paper-pilot --transport streamable-http --host 127.0.0.1 --port 8000
 | `deep_read_topic` | Everything above + full-text extraction with evidence chunks |
 | `graph_topic` | Render an interactive citation / relatedness graph (HTML) for a topic |
 | `render_pdf_pages` | Render PDF pages as images the model can see (figures, tables, layout) |
-| `read_pdf_document` | Hand a downloaded PDF to the model as an embedded `application/pdf` resource |
+| `read_pdf_document` | Return a downloaded PDF's local path and resource link (embed base64 only on request) |
 | `search_literature` | Fine-grained multi-source academic search (6 databases) |
 | `find_similar_papers` | Related work expansion from a seed paper |
 | `inspect_open_access_pdf` | OA availability check and PDF preview |
