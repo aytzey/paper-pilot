@@ -3,7 +3,7 @@
 ``paper-pilot demo "<topic>"`` runs the full research + deep-read pipeline
 against live open-access APIs, writes a Markdown report and an interactive
 citation-graph HTML, prints the paths, and opens the graph in a browser. It
-needs no MCP client and no configuration -- a polite placeholder email is used
+needs no MCP client and no configuration. A polite placeholder email is used
 for OA resolution if you have not set your own.
 """
 
@@ -22,7 +22,7 @@ def _ensure_polite_email() -> None:
         if not os.getenv(var):
             os.environ[var] = _PLACEHOLDER_EMAIL
             print(
-                f"[paper-pilot] {var} not set — using a placeholder for the demo. "
+                f"[paper-pilot] {var} not set; using a placeholder for the demo. "
                 "Set your own email (free, no signup) for polite, reliable API access.",
                 file=sys.stderr,
             )
@@ -54,7 +54,7 @@ def run_demo(
     print(f"\n  Found {len(papers)} papers · deep-read {len(deep_reads)} full-text PDFs\n", file=sys.stderr)
     for paper in papers[:8]:
         authors = ", ".join(paper.get("authors", [])[:2]) or "unknown"
-        print(f"   • {paper.get('title')} ({paper.get('year') or 'n/a'}) — {authors}", file=sys.stderr)
+        print(f"   • {paper.get('title')} ({paper.get('year') or 'n/a'}) · {authors}", file=sys.stderr)
 
     report_path = result.get("report_path")
     graph_path = result.get("graph_path")

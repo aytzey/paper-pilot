@@ -3,10 +3,10 @@
 Centralizes two concerns that were previously duplicated (and partly missing)
 across the download paths:
 
-* SSRF protection -- only fetch ``http(s)`` URLs whose host is not an obviously
+* SSRF protection: only fetch ``http(s)`` URLs whose host is not an obviously
   internal / loopback / cloud-metadata target. This matters most for URLs that
   are extracted from *untrusted* HTML (Sci-Hub and LibGen mirror pages).
-* Size-capped streaming downloads -- never buffer an unbounded response body
+* Size-capped streaming downloads: never buffer an unbounded response body
   into memory; abort once a configurable byte budget is exceeded.
 """
 
@@ -37,7 +37,7 @@ def _ip_is_internal(ip: ipaddress._BaseAddress) -> bool:
     return (
         ip.is_private
         or ip.is_loopback
-        or ip.is_link_local  # 169.254.0.0/16 -- cloud metadata endpoint lives here
+        or ip.is_link_local  # 169.254.0.0/16: cloud metadata endpoint lives here
         or ip.is_reserved
         or ip.is_multicast
         or ip.is_unspecified
@@ -68,7 +68,7 @@ def is_public_http_url(url: str) -> bool:
     try:
         return not _ip_is_internal(ipaddress.ip_address(host))
     except ValueError:
-        pass  # not an IP literal -- resolve the hostname below
+        pass  # not an IP literal; resolve the hostname below
 
     try:
         infos = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80))

@@ -2,8 +2,8 @@
 
 Turns the bibliographic data Paper Pilot already collects (citation counts,
 shared keywords, shared venues, similar-paper links) into a single
-self-contained vis-network HTML page -- the kind of artifact a researcher
-actually screenshots and shares.
+self-contained vis-network HTML page, the kind of artifact a researcher
+screenshots and shares.
 """
 
 from __future__ import annotations
@@ -170,7 +170,7 @@ class GraphService:
         if paper.citation_count is not None:
             bits.append(f"{paper.citation_count} citations")
         bits.append(paper.source)
-        return " — ".join(str(bit) for bit in bits)
+        return " · ".join(str(bit) for bit in bits)
 
     def render_html(self, graph: dict[str, Any], topic: str) -> str:
         payload = json.dumps(graph, ensure_ascii=False)
@@ -189,7 +189,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Paper Pilot — citation map: __TOPIC__</title>
+<title>Paper Pilot · citation map: __TOPIC__</title>
 <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
 <style>
   :root { color-scheme: dark; }
@@ -212,7 +212,7 @@ _HTML_TEMPLATE = """<!DOCTYPE html>
 <body>
 <header>
   <h1><span>Paper&nbsp;Pilot</span> · citation &amp; relatedness map</h1>
-  <p>__TOPIC__ — __COUNT__ papers · dot = top result, diamond = related · size ∝ citations · edges = shared keywords / venue / similarity</p>
+  <p>__TOPIC__: __COUNT__ papers · dot = top result, diamond = related · size ∝ citations · edges = shared keywords / venue / similarity</p>
 </header>
 <div class="legend">__LEGEND__</div>
 <div id="graph"></div>

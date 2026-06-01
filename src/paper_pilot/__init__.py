@@ -1,4 +1,4 @@
-"""Paper Pilot -- your AI's research copilot."""
+"""Paper Pilot: your AI's research copilot."""
 
 __all__ = ["__version__"]
 

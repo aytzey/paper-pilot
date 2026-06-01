@@ -260,7 +260,7 @@ async def graph_topic(
 
     Nodes are papers (size scales with citation count, color by year); edges connect papers that
     share keywords or a venue, plus similarity links radiating from the top result. Returns the
-    local HTML path -- open it in a browser to explore or screenshot the landscape."""
+    local HTML path. Open it in a browser to explore or screenshot the landscape."""
     academic = get_academic_service()
     bundle = await academic.search_literature(
         topic=topic,
