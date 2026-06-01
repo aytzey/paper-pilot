@@ -1,9 +1,8 @@
 # Changelog
 
-## 0.4.0 - 2026-06-01
+## 0.5.0 - 2026-06-01
 
 ### Added
-- rebranded to **Paper Pilot**; package renamed to `paper-pilot`
 - **6th academic source: DOAJ** (Directory of Open Access Journals)
 - **`paper-pilot demo "<topic>"`** — zero-config one-command CLI that runs the full
   pipeline and opens an interactive citation graph in the browser (no MCP client needed)
@@ -29,6 +28,13 @@
 
 ### Config
 - new: `MAX_DOWNLOAD_MB`, `INSECURE_SHADOW_TLS`; malformed numeric env vars now fall back to defaults
+
+## 0.4.0 - 2026-04-10
+
+- rebranded to **Paper Pilot**; package renamed to `paper-pilot`
+- viral-ready README rewrite and English-only codebase
+- actionable remediation hints in `healthcheck`
+- hardened DOI open-access enrichment fallback
 
 ## 0.3.0 - 2026-04-10
 
