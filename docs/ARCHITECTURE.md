@@ -19,7 +19,8 @@ Handles discovery and enrichment across:
 - arXiv
 - Crossref
 - Europe PMC
-- Unpaywall
+- DOAJ (Directory of Open Access Journals)
+- Unpaywall (DOI-based OA enrichment)
 
 ### `services/open_access.py`
 
@@ -59,7 +60,19 @@ Opt-in Sci-Hub integration (disabled by default, set `SCIHUB_ENABLED=true` to ac
 
 ### `services/reporting.py`
 
-Produces Markdown reports for both standard research and deep-read workflows.
+Produces Markdown reports for both standard research and deep-read workflows, including an at-a-glance synthesis comparison table (raw relevance scores are kept in the chunk-manifest JSON, not the human-facing report).
+
+### `services/graphing.py`
+
+Builds a nodes/edges model from the search results (node size ∝ citation count, color by year; edges from shared keywords, shared venue, and similarity links) and renders a self-contained interactive vis-network HTML map.
+
+### `services/net.py`
+
+Shared network safety: an SSRF guard (`is_public_http_url`) that blocks loopback/private/link-local/cloud-metadata targets and non-HTTP schemes, plus size-capped streaming download helpers used by every PDF fetch path.
+
+### `cli.py` / `demo.py`
+
+`cli.py` is the entry point: it runs the MCP server (stdio/streamable-http/sse) or, via the `demo` subcommand, runs `demo.py` — a zero-config one-shot pipeline that writes a report + citation graph and opens the graph in a browser.
 
 ## Data Flow
 

@@ -5,6 +5,7 @@ import logging
 import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 from bs4 import BeautifulSoup
@@ -15,7 +16,8 @@ except ModuleNotFoundError:  # pragma: no cover
     import pymupdf as fitz
 
 from paper_pilot.config import Settings
-from paper_pilot.models import DownloadedDocument, PaperRecord, slugify, utc_timestamp
+from paper_pilot.models import DownloadedDocument, PaperRecord, normalize_doi, slugify, utc_timestamp
+from paper_pilot.services.net import download_capped, is_public_http_url
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +40,15 @@ class ScihubService:
         self.settings = settings
         self.mirrors = settings.scihub_mirrors or _DEFAULT_MIRRORS
         self.timeout = settings.scihub_timeout_sec
+        # Verify TLS by default (respecting SSL_CERT_FILE); only disable when the
+        # operator explicitly opts in via INSECURE_SHADOW_TLS=true.
+        self._verify = False if settings.insecure_shadow_tls else settings.ssl_verify
+        self._crossref_ua = self._build_crossref_ua(settings)
+
+    @staticmethod
+    def _build_crossref_ua(settings: Settings) -> str:
+        contact = settings.unpaywall_email or settings.openalex_email
+        return f"paper-pilot/0.4 (mailto:{contact})" if contact else "paper-pilot/0.4"
 
     # ------------------------------------------------------------------
     # Public API
@@ -116,18 +127,20 @@ class ScihubService:
 
     async def _resolve_pdf_url(self, doi: str, retries: int = 2) -> str | None:
         """Try each Sci-Hub mirror to find a PDF URL for the given DOI."""
+        safe_doi = quote((normalize_doi(doi) or doi).strip(), safe="/:")
         for attempt in range(retries):
             if attempt > 0:
                 await asyncio.sleep(2.0 * attempt)
             async with httpx.AsyncClient(
                 timeout=self.timeout,
                 follow_redirects=True,
-                verify=False,  # Sci-Hub certificates are often self-signed
+                trust_env=True,
+                verify=self._verify,
                 headers=_HEADERS,
             ) as client:
                 for mirror in self.mirrors:
                     try:
-                        url = f"{mirror}/{doi}"
+                        url = f"{mirror}/{safe_doi}"
                         resp = await client.get(url)
                         if resp.status_code != 200:
                             continue
@@ -179,19 +192,24 @@ class ScihubService:
     # ------------------------------------------------------------------
 
     async def _download_pdf_bytes(self, pdf_url: str) -> bytes:
-        """Download PDF content with retries."""
+        """Download PDF content with retries, size cap, and SSRF guard.
+
+        The URL originates from untrusted mirror HTML, so it is validated against
+        an internal-host blocklist and streamed with a byte budget.
+        """
+        if not is_public_http_url(pdf_url):
+            raise ValueError(f"Refusing to fetch non-public PDF URL: {pdf_url}")
         async with httpx.AsyncClient(
             timeout=60.0,
             follow_redirects=True,
-            verify=False,
+            trust_env=True,
+            verify=self._verify,
             headers={**_HEADERS, "Accept": "application/pdf,*/*"},
         ) as client:
             last_error: Exception | None = None
             for attempt in range(3):
                 try:
-                    resp = await client.get(pdf_url)
-                    resp.raise_for_status()
-                    content = resp.content
+                    content = await download_capped(client, pdf_url, self.settings.max_download_bytes)
                     if not content.startswith(b"%PDF"):
                         raise ValueError("Downloaded content is not a PDF.")
                     return content
@@ -230,8 +248,8 @@ class ScihubService:
         async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
             try:
                 resp = await client.get(
-                    f"https://api.crossref.org/works/{doi}",
-                    headers={"User-Agent": "paper-pilot/0.4 (mailto:research@example.com)"},
+                    f"https://api.crossref.org/works/{quote(doi, safe='/:')}",
+                    headers={"User-Agent": self._crossref_ua},
                 )
                 if resp.status_code != 200:
                     return {}
@@ -247,7 +265,7 @@ class ScihubService:
                 resp = await client.get(
                     "https://api.crossref.org/works",
                     params={"query.title": title, "rows": "1"},
-                    headers={"User-Agent": "paper-pilot/0.4"},
+                    headers={"User-Agent": self._crossref_ua},
                 )
                 if resp.status_code != 200:
                     return None
@@ -265,7 +283,7 @@ class ScihubService:
                 resp = await client.get(
                     "https://api.crossref.org/works",
                     params={"query": keyword, "rows": str(limit)},
-                    headers={"User-Agent": "paper-pilot/0.4"},
+                    headers={"User-Agent": self._crossref_ua},
                 )
                 if resp.status_code != 200:
                     return []

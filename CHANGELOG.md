@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.4.0 - 2026-06-01
+
+### Added
+- rebranded to **Paper Pilot**; package renamed to `paper-pilot`
+- **6th academic source: DOAJ** (Directory of Open Access Journals)
+- **`paper-pilot demo "<topic>"`** — zero-config one-command CLI that runs the full
+  pipeline and opens an interactive citation graph in the browser (no MCP client needed)
+- **`graph_topic` tool** and a `write_graph` flag on `research_topic` / `deep_read_topic`
+  that render a self-contained interactive citation/relatedness graph (HTML)
+- synthesis layer in deep-read reports: an at-a-glance **Comparison table**
+  (debug relevance scores moved to the chunk-manifest JSON)
+- committed real sample output under `examples/`
+- `ruff` linting wired into CI; launch/distribution playbook under `docs/launch/`
+
+### Fixed
+- **HTTP/SSE transports** now work (`--transport streamable-http|sse` no longer crashes —
+  network options are set on `mcp.settings` instead of passed to `mcp.run()`)
+- Semantic Scholar single-sided year filters are now open-ended (no more silent 10-year window)
+- arXiv records dedupe across `abs`/`pdf`/versioned URLs
+- chunk relevance scoring is now Unicode-aware (non-ASCII query terms are honored)
+
+### Security
+- TLS verification is **on by default** for Sci-Hub and LibGen (opt out with `INSECURE_SHADOW_TLS=true`)
+- `search_scihub` / `download_scihub_paper` now require `SCIHUB_ENABLED=true`
+- SSRF guard + size-capped streaming downloads across all PDF fetch paths
+- Zotero sync no longer aborts on a single item failure (reports `failed_items`)
+
+### Config
+- new: `MAX_DOWNLOAD_MB`, `INSECURE_SHADOW_TLS`; malformed numeric env vars now fall back to defaults
+
 ## 0.3.0 - 2026-04-10
 
 - added **Sci-Hub integration** as opt-in paper download source (disabled by default)

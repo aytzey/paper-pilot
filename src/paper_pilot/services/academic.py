@@ -105,12 +105,13 @@ class AcademicSearchService:
                 self._search_arxiv(client, topic, limit_per_source),
                 self._search_crossref(client, topic, limit_per_source, from_year, to_year),
                 self._search_europe_pmc(client, topic, limit_per_source, from_year, to_year, open_access_only),
+                self._search_doaj(client, topic, limit_per_source, from_year, to_year),
             ]
             gathered = await asyncio.gather(*tasks, return_exceptions=True)
             warnings: list[str] = []
             combined: list[PaperRecord] = []
             for source_name, result in zip(
-                ["semantic_scholar", "openalex", "arxiv", "crossref", "europe_pmc"],
+                ["semantic_scholar", "openalex", "arxiv", "crossref", "europe_pmc", "doaj"],
                 gathered,
                 strict=True,
             ):
@@ -124,7 +125,13 @@ class AcademicSearchService:
             warnings.extend(enrichment_warnings)
 
         if open_access_only:
-            merged = [record for record in merged if record.is_open_access or record.pdf_url] or merged
+            oa_only = [record for record in merged if record.is_open_access or record.pdf_url]
+            if not oa_only and merged:
+                warnings.append(
+                    "No strictly open-access results were found; returning best-effort "
+                    "results that may be closed-access."
+                )
+            merged = oa_only or merged
         return SearchBundle(results=merged, warnings=warnings)
 
     async def recommend_similar(
@@ -192,9 +199,9 @@ class AcademicSearchService:
         if from_year and to_year:
             params["year"] = f"{from_year}-{to_year}"
         elif from_year:
-            params["year"] = f"{from_year}-{from_year + 10}"
+            params["year"] = f"{from_year}-"  # open-ended: during or after from_year
         elif to_year:
-            params["year"] = f"{max(to_year - 10, 1900)}-{to_year}"
+            params["year"] = f"-{to_year}"  # open-ended: during or before to_year
         data = await self._get_json(
             client,
             "https://api.semanticscholar.org/graph/v1/paper/search",
@@ -308,6 +315,60 @@ class AcademicSearchService:
             "europepmc_search",
         )
         return [self._paper_from_europe_pmc(item) for item in data.get("resultList", {}).get("result", [])]
+
+    async def _search_doaj(
+        self,
+        client: httpx.AsyncClient,
+        topic: str,
+        limit: int,
+        from_year: int | None,
+        to_year: int | None,
+    ) -> list[PaperRecord]:
+        # DOAJ indexes only peer-reviewed open-access journal articles.
+        data = await self._get_json(
+            client,
+            f"https://doaj.org/api/search/articles/{quote(topic, safe='')}",
+            {"pageSize": min(max(limit, 1), 100), "page": 1},
+            "doaj_search",
+        )
+        records = [self._paper_from_doaj(item) for item in data.get("results", [])]
+        # DOAJ query syntax is fragile; filter by year client-side instead.
+        if from_year or to_year:
+            lo = from_year or 0
+            hi = to_year or 9999
+            records = [r for r in records if r.year is None or lo <= r.year <= hi]
+        return records
+
+    def _paper_from_doaj(self, item: dict[str, Any]) -> PaperRecord:
+        bibjson = item.get("bibjson") or {}
+        identifiers = bibjson.get("identifier") or []
+        doi = next((i.get("id") for i in identifiers if (i.get("type") or "").lower() == "doi"), None)
+        links = bibjson.get("link") or []
+        pdf_url = next(
+            (link.get("url") for link in links if (link.get("content_type") or "").lower() == "pdf"),
+            None,
+        )
+        landing = next(
+            (link.get("url") for link in links if (link.get("type") or "").lower() == "fulltext"),
+            None,
+        )
+        journal = bibjson.get("journal") or {}
+        year = int(bibjson["year"]) if str(bibjson.get("year", "")).strip().isdigit() else None
+        return PaperRecord(
+            source="doaj",
+            source_id=item.get("id") or doi or bibjson.get("title", "unknown"),
+            title=bibjson.get("title") or "Untitled",
+            authors=[author.get("name", "") for author in bibjson.get("author", []) if author.get("name")],
+            abstract=bibjson.get("abstract"),
+            year=year,
+            venue=journal.get("title"),
+            doi=normalize_doi(doi),
+            url=landing or (f"https://doi.org/{normalize_doi(doi)}" if doi else None),
+            pdf_url=pdf_url,
+            citation_count=None,
+            is_open_access=True,
+            keywords=[kw for kw in (bibjson.get("keywords") or []) if kw][:6],
+        )
 
     def _paper_from_semantic_scholar(self, item: dict[str, Any], related_score: float | None = None) -> PaperRecord:
         external_ids = item.get("externalIds") or {}

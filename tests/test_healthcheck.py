@@ -2,7 +2,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import httpx
-import pytest
 
 from paper_pilot.config import Settings
 from paper_pilot.services.zotero import ZoteroService

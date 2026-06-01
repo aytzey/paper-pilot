@@ -4,10 +4,10 @@ import asyncio
 import json
 import shutil
 import time
+import urllib.request
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
-import urllib.request
 
 import httpx
 from pyzotero import zotero as pyzotero
@@ -325,37 +325,41 @@ class ZoteroService:
         download_map = {document.paper.dedupe_key(): document for document in downloads}
         created_items: list[str] = []
         reused_items: list[str] = []
+        failed_items: list[str] = []
 
         for paper in papers:
-            existing = self._find_existing_item(client, paper)
-            if existing:
-                client.addto_collection(collection_key, existing)
-                reused_items.append(existing.get("key") or existing.get("data", {}).get("key"))
-                continue
+            try:
+                existing = self._find_existing_item(client, paper)
+                if existing:
+                    client.addto_collection(collection_key, existing)
+                    reused_items.append(existing.get("key") or existing.get("data", {}).get("key"))
+                    continue
 
-            item_type = "preprint" if paper.source == "arxiv" else "journalArticle"
-            template = client.item_template(item_type)
-            template["title"] = paper.title
-            template["collections"] = [collection_key]
-            template["creators"] = [self._author_to_creator(author) for author in paper.authors] or []
-            template["abstractNote"] = paper.abstract or ""
-            template["date"] = str(paper.year) if paper.year else ""
-            template["url"] = paper.url or ""
-            template["tags"] = [{"tag": f"topic:{topic}"}]
-            if paper.doi:
-                template["DOI"] = paper.doi
-            if paper.venue:
-                template["publicationTitle"] = paper.venue
-            template["extra"] = f"Imported by paper-pilot\nSource: {paper.source}\nSource ID: {paper.source_id}"
+                item_type = "preprint" if paper.source == "arxiv" else "journalArticle"
+                template = client.item_template(item_type)
+                template["title"] = paper.title
+                template["collections"] = [collection_key]
+                template["creators"] = [self._author_to_creator(author) for author in paper.authors] or []
+                template["abstractNote"] = paper.abstract or ""
+                template["date"] = str(paper.year) if paper.year else ""
+                template["url"] = paper.url or ""
+                template["tags"] = [{"tag": f"topic:{topic}"}]
+                if paper.doi:
+                    template["DOI"] = paper.doi
+                if paper.venue:
+                    template["publicationTitle"] = paper.venue
+                template["extra"] = f"Imported by paper-pilot\nSource: {paper.source}\nSource ID: {paper.source_id}"
 
-            response = client.create_items([template])
-            item_key = next(iter((response.get("success") or {}).values()), None)
-            if not item_key:
-                raise RuntimeError(f"Failed to create Zotero item: {response}")
-            created_items.append(item_key)
+                response = client.create_items([template])
+                item_key = next(iter((response.get("success") or {}).values()), None)
+                if not item_key:
+                    raise RuntimeError(f"Failed to create Zotero item: {response}")
+                created_items.append(item_key)
 
-            if attach_pdfs and paper.dedupe_key() in download_map:
-                client.attachment_simple([str(download_map[paper.dedupe_key()].path)], parentid=item_key)
+                if attach_pdfs and paper.dedupe_key() in download_map:
+                    client.attachment_simple([str(download_map[paper.dedupe_key()].path)], parentid=item_key)
+            except Exception as exc:  # keep syncing the rest; report what failed
+                failed_items.append(f"{paper.title}: {exc}")
 
         note_template = client.item_template("note")
         note_template["collections"] = [collection_key]
@@ -368,6 +372,7 @@ class ZoteroService:
             "collection_key": collection_key,
             "created_item_keys": created_items,
             "reused_item_keys": reused_items,
+            "failed_items": failed_items,
             "note_key": note_key,
             "mode": "web",
         }
@@ -386,38 +391,43 @@ class ZoteroService:
         download_map = {document.paper.dedupe_key(): document for document in downloads}
         created_items: list[str] = []
         reused_items: list[str] = []
+        failed_items: list[str] = []
 
         for paper in papers:
-            existing = self._find_existing_item(client, paper)
-            if existing:
-                item_key = existing.get("key") or existing.get("data", {}).get("key")
+            try:
+                existing = self._find_existing_item(client, paper)
+                if existing:
+                    item_key = existing.get("key") or existing.get("data", {}).get("key")
+                    if not item_key:
+                        raise RuntimeError(f"Could not resolve key for existing Zotero item: {paper.title}")
+                    self._add_item_to_collection_via_bridge(item_key, collection_key)
+                    reused_items.append(item_key)
+                    if attach_pdfs and paper.dedupe_key() in download_map:
+                        self._attach_pdf_via_bridge(item_key, download_map[paper.dedupe_key()].path)
+                    continue
+
+                connector_item = self._connector_item_for_paper(paper, topic)
+                self._push_to_connector(connector_item, paper.url or (f"https://doi.org/{paper.doi}" if paper.doi else ""))
+                created = self._wait_for_item(client, paper)
+                if not created:
+                    raise RuntimeError(f"Local Zotero item key not found: {paper.title}")
+                item_key = created.get("key") or created.get("data", {}).get("key")
                 if not item_key:
-                    raise RuntimeError(f"Could not resolve key for existing Zotero item: {paper.title}")
+                    raise RuntimeError(f"Local Zotero item key not found: {paper.title}")
+
                 self._add_item_to_collection_via_bridge(item_key, collection_key)
-                reused_items.append(item_key)
                 if attach_pdfs and paper.dedupe_key() in download_map:
                     self._attach_pdf_via_bridge(item_key, download_map[paper.dedupe_key()].path)
-                continue
-
-            connector_item = self._connector_item_for_paper(paper, topic)
-            self._push_to_connector(connector_item, paper.url or (f"https://doi.org/{paper.doi}" if paper.doi else ""))
-            created = self._wait_for_item(client, paper)
-            if not created:
-                raise RuntimeError(f"Local Zotero item key not found: {paper.title}")
-            item_key = created.get("key") or created.get("data", {}).get("key")
-            if not item_key:
-                raise RuntimeError(f"Local Zotero item key not found: {paper.title}")
-
-            self._add_item_to_collection_via_bridge(item_key, collection_key)
-            if attach_pdfs and paper.dedupe_key() in download_map:
-                self._attach_pdf_via_bridge(item_key, download_map[paper.dedupe_key()].path)
-            created_items.append(item_key)
+                created_items.append(item_key)
+            except Exception as exc:  # keep syncing the rest; report what failed
+                failed_items.append(f"{paper.title}: {exc}")
 
         note_key = self._create_note_via_bridge(collection_key, report_markdown, topic)
         return {
             "collection_key": collection_key,
             "created_item_keys": created_items,
             "reused_item_keys": reused_items,
+            "failed_items": failed_items,
             "note_key": note_key,
             "mode": "local",
         }
@@ -580,7 +590,7 @@ class ZoteroService:
             resolved.relative_to(home)
             return resolved
         except ValueError:
-            staging_dir = home / "Zotero" / ".codex-bridge-staging"
+            staging_dir = home / "Zotero" / ".paper-pilot-staging"
             staging_dir.mkdir(parents=True, exist_ok=True)
             staged = staging_dir / resolved.name
             shutil.copy2(resolved, staged)

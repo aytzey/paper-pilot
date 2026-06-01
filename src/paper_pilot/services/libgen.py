@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
 
 import requests
-import urllib3
 from bs4 import BeautifulSoup
 
 try:
@@ -17,8 +15,7 @@ except ModuleNotFoundError:  # pragma: no cover - compatibility fallback
 
 from paper_pilot.config import Settings
 from paper_pilot.models import DownloadedDocument, PaperRecord, slugify, utc_timestamp
-
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+from paper_pilot.services.net import download_capped_sync, is_public_http_url
 
 LIBGEN_COLUMNS = [
     "ID",
@@ -50,6 +47,8 @@ class LibgenSearchBundle:
 class LibgenService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
+        # Verify TLS by default; only disable when the operator opts in.
+        self._verify = False if settings.insecure_shadow_tls else settings.ssl_verify
 
     async def search(
         self,
@@ -107,7 +106,7 @@ class LibgenService:
             f"{mirror}{path}",
             params={"req": query, "column": search_type},
             timeout=self.settings.libgen_timeout_sec,
-            verify=False,
+            verify=self._verify,
         )
         response.raise_for_status()
         return self._parse_search_results(response.text, str(response.url), limit, allowed_extensions)
@@ -161,7 +160,7 @@ class LibgenService:
                 "Accept-Language": "en-US,en;q=0.9",
             }
         )
-        response = session.get(mirror_url, timeout=self.settings.libgen_timeout_sec, verify=False)
+        response = session.get(mirror_url, timeout=self.settings.libgen_timeout_sec, verify=self._verify)
         response.raise_for_status()
         return self._extract_download_links(response.text, str(response.url))
 
@@ -194,20 +193,22 @@ class LibgenService:
             raise RuntimeError("No downloadable link could be resolved.")
 
         download_url = next((links[source] for source in DOWNLOAD_SOURCES if source in links), next(iter(links.values())))
-        response = requests.get(
+        if not is_public_http_url(download_url):
+            raise RuntimeError(f"Refusing to fetch non-public download URL: {download_url}")
+        session = requests.Session()
+        content = download_capped_sync(
+            session,
             download_url,
-            headers={"User-Agent": "Mozilla/5.0"},
+            self.settings.max_download_bytes,
             timeout=max(self.settings.libgen_timeout_sec, 60),
-            verify=False,
-            allow_redirects=True,
+            verify=self._verify,
         )
-        response.raise_for_status()
-        if not response.content.startswith(b"%PDF"):
+        if not content.startswith(b"%PDF"):
             raise RuntimeError("Downloaded content does not appear to be a PDF.")
 
         filename = f"{slugify(topic_hint or item.get('Title') or 'libgen')}-{utc_timestamp()}.pdf"
         destination = self.settings.data_dir / "downloads" / filename
-        destination.write_bytes(response.content)
+        destination.write_bytes(content)
 
         paper = self._paper_from_item(item)
         paper.pdf_url = download_url

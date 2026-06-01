@@ -6,12 +6,15 @@ This file is the shared entry point for any coding or research agent working wit
 
 This project exposes an MCP server for:
 
-- academic search across multiple sources
+- academic search across 6 databases (Semantic Scholar, OpenAlex, arXiv, Crossref, Europe PMC, DOAJ)
 - open-access PDF resolution and inspection
 - Sci-Hub paper resolution and download (opt-in, disabled by default)
 - deep reading with full-text extraction and chunking
 - PDF page rendering for charts, tables, and figures
+- interactive citation/relatedness graph export (HTML)
 - Zotero sync in both local and web modes
+
+There is also a zero-config CLI: `paper-pilot demo "<topic>"` runs the whole pipeline and opens a citation graph without any MCP client.
 
 ## Read Order
 
@@ -31,7 +34,8 @@ For most research tasks, use tools in this order:
 2. `research_topic` for broad discovery and report generation
 3. `deep_read_topic` when you need evidence chunks and local PDF access
 4. `render_pdf_pages` when visual inspection matters
-5. `list_zotero_collections` before writing into an existing collection
+5. `graph_topic` (or `write_graph=True`) when a citation/relatedness map helps
+6. `list_zotero_collections` before writing into an existing collection
 
 Use `search_literature` and `find_similar_papers` when you want fine-grained control instead of the bundled pipeline.
 
@@ -63,15 +67,15 @@ If the bridge is unavailable, metadata-only flows may still work, but collection
 
 The project is OA-first by design.
 
-Preferred sources:
+Search runs across 6 databases: Semantic Scholar, OpenAlex, arXiv, Crossref, Europe PMC, and DOAJ.
 
-1. Semantic Scholar open PDFs
-2. OpenAlex OA locations
-3. arXiv
-4. Europe PMC
-5. Unpaywall
-6. publisher open links
-7. Sci-Hub (opt-in, disabled by default)
+Preferred sources for the full text itself:
+
+1. Semantic Scholar / OpenAlex / DOAJ open PDFs
+2. arXiv and Europe PMC OA locations
+3. Unpaywall resolution
+4. publisher open links
+5. Sci-Hub (opt-in, disabled by default)
 
 `Sci-Hub` is available as an opt-in fallback when `SCIHUB_ENABLED=true`. If used, its provenance should remain explicit.
 
@@ -86,7 +90,9 @@ The implementation is organized around service modules:
 - `services/deep_read.py`: text extraction and page rendering
 - `services/zotero.py`: local and web Zotero integration
 - `services/scihub.py`: Sci-Hub paper resolution and download (opt-in)
-- `services/reporting.py`: report generation
+- `services/reporting.py`: report generation and synthesis comparison tables
+- `services/graphing.py`: interactive citation-graph HTML export
+- `services/net.py`: SSRF guard and size-capped downloads
 
 Tool entry points are defined in [src/paper_pilot/server.py](src/paper_pilot/server.py).
 

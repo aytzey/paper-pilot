@@ -11,6 +11,7 @@ build/
 *.pyc
 data/
 graphify-out/
+docs/launch/
 .graphify_detect.json
 .graphify_ast.json
 .graphify_cached.json

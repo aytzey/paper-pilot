@@ -147,19 +147,45 @@ class ReportService:
         lines: list[str] = [f"# Deep Read Report: {topic}", ""]
         lines.extend(
             [
-                f"- Research question: {research_question}",
-                f"- Deep-read papers: {len(deep_reads)}",
-                f"- Total candidate papers: {len(papers)}",
+                f"- **Research question:** {research_question}",
+                f"- **Deep-read papers:** {len(deep_reads)}",
+                f"- **Total candidate papers:** {len(papers)}",
             ]
         )
         if zotero_collection_key:
-            lines.append(f"- Zotero collection: `{zotero_collection_key}`")
+            lines.append(f"- **Zotero collection:** `{zotero_collection_key}`")
         lines.append("")
 
         if warnings:
             lines.extend(["## Warnings", ""])
             for warning in warnings:
                 lines.append(f"- {warning}")
+            lines.append("")
+
+        # Screenshot-worthy at-a-glance comparison of everything that was read.
+        if deep_reads:
+            lines.extend(
+                [
+                    "## Comparison",
+                    "",
+                    "| # | Paper | Year | Venue | Citations | Pages | Top evidence |",
+                    "|---|-------|------|-------|-----------|-------|--------------|",
+                ]
+            )
+            for index, artifact in enumerate(deep_reads, start=1):
+                paper = artifact.paper
+                top_pages = self._top_evidence_pages(artifact)
+                citations = paper.citation_count if paper.citation_count is not None else "-"
+                lines.append(
+                    f"| {index} | {self._md_cell(paper.title, 70)} | {paper.year or '-'} | "
+                    f"{self._md_cell(paper.venue or '-', 28)} | {citations} | "
+                    f"{artifact.page_count} | {top_pages or '-'} |"
+                )
+            lines.append("")
+            lines.append(
+                "> Fill in Method / Key finding / Limitation per paper from the Evidence "
+                "excerpts below, citing the page ranges shown."
+            )
             lines.append("")
 
         lines.extend(["## Reading Pack", ""])
@@ -180,10 +206,11 @@ class ReportService:
                 reverse=True,
             )[:5]
             for chunk in ranked:
-                lines.append(
-                    f"- Pages {chunk.start_page}-{chunk.end_page} | score={chunk.score or 0:.2f} | "
-                    f"hits={', '.join(chunk.keyword_hits) or 'none'}"
-                )
+                matched = ", ".join(chunk.keyword_hits)
+                header = f"**Pages {chunk.start_page}–{chunk.end_page}**"
+                if matched:
+                    header += f" · matched: {matched}"
+                lines.append(header)
                 lines.append("")
                 lines.append("```text")
                 excerpt = chunk.text[:1600]
@@ -203,15 +230,40 @@ class ReportService:
 
         lines.extend(
             [
-                "## Agent Notes",
+                "## How to use this report",
                 "",
                 "- For figures, tables, and layout review, open the PDF directly via its path.",
-                "- For text-based comparison, use `text_path` and `chunk_manifest_path`.",
-                "- Note the page range when extracting evidence.",
+                "- For text-based comparison, use `text_path` and `chunk_manifest_path` "
+                "(relevance scores live in the manifest JSON).",
+                "- Cite the page range shown above each excerpt when extracting evidence.",
                 "",
             ]
         )
         return "\n".join(lines).strip() + "\n"
+
+    @staticmethod
+    def _top_evidence_pages(artifact: DeepReadArtifact, limit: int = 3) -> str:
+        ranked = sorted(
+            artifact.chunks,
+            key=lambda chunk: (chunk.score or 0.0, -chunk.chunk_index),
+            reverse=True,
+        )
+        pages: list[int] = []
+        for chunk in ranked:
+            if (chunk.score or 0.0) <= 0:
+                continue
+            if chunk.start_page not in pages:
+                pages.append(chunk.start_page)
+            if len(pages) >= limit:
+                break
+        return ", ".join(f"p.{page}" for page in pages)
+
+    @staticmethod
+    def _md_cell(value: str, max_length: int = 60) -> str:
+        cleaned = " ".join((value or "").split()).replace("|", "\\|")
+        if len(cleaned) > max_length:
+            cleaned = cleaned[: max_length - 1].rstrip() + "…"
+        return cleaned or "-"
 
     def write_report(self, topic: str, markdown: str) -> Path:
         filename = f"{slugify(topic)}-{utc_timestamp()}.md"

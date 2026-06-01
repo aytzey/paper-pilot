@@ -9,6 +9,7 @@ from paper_pilot.config import Settings, load_settings
 from paper_pilot.models import PaperRecord
 from paper_pilot.services.academic import AcademicSearchService
 from paper_pilot.services.deep_read import DeepReadingService
+from paper_pilot.services.graphing import GraphService
 from paper_pilot.services.libgen import LibgenService
 from paper_pilot.services.open_access import OpenAccessService
 from paper_pilot.services.reporting import ReportService
@@ -53,8 +54,21 @@ def get_deep_read_service() -> DeepReadingService:
     return DeepReadingService(get_settings())
 
 
+def get_graph_service() -> GraphService:
+    return GraphService(get_settings())
+
+
 def get_scihub_service() -> ScihubService:
     return ScihubService(get_settings())
+
+
+def _require_scihub_enabled() -> None:
+    if not get_settings().scihub_enabled:
+        raise RuntimeError(
+            "Sci-Hub is disabled. Set SCIHUB_ENABLED=true to use search_scihub / "
+            "download_scihub_paper or the include_scihub fallback. Note: Sci-Hub access "
+            "may be unlawful in your jurisdiction; you are responsible for compliance."
+        )
 
 
 def get_zotero_service() -> ZoteroService:
@@ -197,7 +211,7 @@ async def search_literature(
     to_year: int | None = None,
     open_access_only: bool = True,
 ) -> dict:
-    """Search Semantic Scholar, OpenAlex, Europe PMC, arXiv, and Crossref for a topic."""
+    """Search Semantic Scholar, OpenAlex, Europe PMC, arXiv, Crossref, and DOAJ for a topic."""
     bundle = await get_academic_service().search_literature(
         topic=topic,
         limit_per_source=limit_per_source,
@@ -230,6 +244,51 @@ async def find_similar_papers(
         "seed_title": seed_title,
         "warnings": bundle.warnings,
         "results": [paper.to_dict() for paper in bundle.results[:limit]],
+    }
+
+
+@mcp.tool()
+async def graph_topic(
+    topic: str,
+    limit_per_source: int = 5,
+    related_limit: int = 8,
+    from_year: int | None = None,
+    to_year: int | None = None,
+    open_access_only: bool = True,
+) -> dict:
+    """Search a topic and render an interactive citation/relatedness graph as a self-contained HTML file.
+
+    Nodes are papers (size scales with citation count, color by year); edges connect papers that
+    share keywords or a venue, plus similarity links radiating from the top result. Returns the
+    local HTML path -- open it in a browser to explore or screenshot the landscape."""
+    academic = get_academic_service()
+    bundle = await academic.search_literature(
+        topic=topic,
+        limit_per_source=limit_per_source,
+        from_year=from_year,
+        to_year=to_year,
+        open_access_only=open_access_only,
+    )
+    papers = bundle.results
+    related_bundle = (
+        await academic.recommend_similar(
+            seed_title=papers[0].title,
+            seed_doi=papers[0].doi,
+            limit=related_limit,
+            open_access_only=open_access_only,
+        )
+        if papers
+        else None
+    )
+    related = related_bundle.results[:related_limit] if related_bundle else []
+    graph_path = get_graph_service().write_graph(topic, papers, related)
+    return {
+        "topic": topic,
+        "graph_path": str(graph_path),
+        "node_count": len({p.dedupe_key() for p in [*papers, *related]}),
+        "paper_count": len(papers),
+        "related_count": len(related),
+        "warnings": bundle.warnings,
     }
 
 
@@ -326,7 +385,9 @@ async def search_scihub(
     limit: int = 10,
     check_availability: bool = False,
 ) -> dict:
-    """Search Sci-Hub for papers by DOI, title, or keyword. Use search_type='doi', 'title', or 'keyword'."""
+    """Search Sci-Hub for papers by DOI, title, or keyword. Use search_type='doi', 'title', or 'keyword'.
+    Requires SCIHUB_ENABLED=true."""
+    _require_scihub_enabled()
     service = get_scihub_service()
     if search_type == "doi":
         result = await service.fetch_by_doi(query)
@@ -344,7 +405,9 @@ async def download_scihub_paper(
     doi: str,
     topic_hint: str = "scihub",
 ) -> dict:
-    """Download a paper PDF via Sci-Hub using its DOI. Returns local path and text preview."""
+    """Download a paper PDF via Sci-Hub using its DOI. Returns local path and text preview.
+    Requires SCIHUB_ENABLED=true."""
+    _require_scihub_enabled()
     service = get_scihub_service()
     document = await service.download_paper(doi=doi, topic_hint=topic_hint)
     return document.to_dict()
@@ -376,9 +439,11 @@ async def research_topic(
     existing_collection_name: str | None = None,
     create_collection_name: str | None = None,
     attach_pdfs: bool = True,
+    write_graph: bool = False,
 ) -> dict:
     """Run the end-to-end research workflow and optionally sync the result into Zotero.
-    Set include_scihub=True to use Sci-Hub as a fallback for papers without open-access PDFs."""
+    Set include_scihub=True to use Sci-Hub as a fallback for papers without open-access PDFs.
+    Set write_graph=True to also render an interactive citation graph HTML (path returned as graph_path)."""
     report_service = get_report_service()
     pipeline = await _run_research_pipeline(
         topic=topic,
@@ -425,6 +490,10 @@ async def research_topic(
     )
     report_path = report_service.write_report(topic, markdown)
 
+    graph_path = None
+    if write_graph:
+        graph_path = str(get_graph_service().write_graph(topic, top_papers, related_papers))
+
     if write_to_zotero and zotero_collection_key:
         papers_for_zotero: list[PaperRecord] = top_papers + [paper for paper in related_papers if paper.dedupe_key() not in {top.dedupe_key() for top in top_papers}]
         zotero_sync = await get_zotero_service().sync_topic(
@@ -439,6 +508,7 @@ async def research_topic(
     return {
         "topic": topic,
         "report_path": str(report_path),
+        "graph_path": graph_path,
         "warnings": all_warnings,
         "top_papers": [paper.to_dict() for paper in top_papers],
         "related_papers": [paper.to_dict() for paper in related_papers],
@@ -471,9 +541,11 @@ async def deep_read_topic(
     existing_collection_name: str | None = None,
     create_collection_name: str | None = None,
     attach_pdfs: bool = True,
+    write_graph: bool = False,
 ) -> dict:
     """Search, download, extract full text, and return evidence chunks plus local PDF paths for direct inspection.
-    Set include_scihub=True to use Sci-Hub as a fallback for papers without open-access PDFs."""
+    Set include_scihub=True to use Sci-Hub as a fallback for papers without open-access PDFs.
+    Set write_graph=True to also render an interactive citation graph HTML (path returned as graph_path)."""
     question = research_question or topic
     pipeline = await _run_research_pipeline(
         topic=topic,
@@ -532,6 +604,10 @@ async def deep_read_topic(
     )
     report_path = report_service.write_report(f"{topic}-deep-read", markdown)
 
+    graph_path = None
+    if write_graph:
+        graph_path = str(get_graph_service().write_graph(topic, top_papers, related_papers))
+
     zotero_sync = None
     if write_to_zotero and zotero_collection_key:
         papers_for_zotero: list[PaperRecord] = top_papers + [
@@ -550,6 +626,7 @@ async def deep_read_topic(
         "topic": topic,
         "research_question": question,
         "report_path": str(report_path),
+        "graph_path": graph_path,
         "warnings": all_warnings,
         "top_papers": [paper.to_dict() for paper in top_papers],
         "related_papers": [paper.to_dict() for paper in related_papers],

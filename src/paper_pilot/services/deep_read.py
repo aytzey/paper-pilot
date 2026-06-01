@@ -12,6 +12,8 @@ except ModuleNotFoundError:  # pragma: no cover - compatibility fallback
 from paper_pilot.config import Settings
 from paper_pilot.models import DeepReadArtifact, DownloadedDocument, PaperRecord, TextChunk, slugify
 
+_MAX_RENDER_SCALE = 8.0
+
 _STOPWORDS = {
     "a",
     "an",
@@ -168,6 +170,8 @@ class DeepReadingService:
             raise FileNotFoundError(f"PDF not found: {path}")
         if scale <= 0:
             raise ValueError("scale must be positive.")
+        if scale > _MAX_RENDER_SCALE:
+            raise ValueError(f"scale must be <= {_MAX_RENDER_SCALE} to avoid excessive memory use.")
 
         renders: list[Path] = []
         with fitz.open(path) as document:
@@ -247,11 +251,11 @@ class DeepReadingService:
         if not query.strip():
             return 0.0, []
 
-        query_lower = query.lower().strip()
-        text_lower = text.lower()
+        query_lower = query.casefold().strip()
+        text_lower = text.casefold()
         keywords = [
             token
-            for token in re.findall(r"[a-z0-9][a-z0-9_-]{1,}", query_lower)
+            for token in re.findall(r"\w[\w-]+", query_lower, flags=re.UNICODE)
             if token not in _STOPWORDS
         ]
         score = 0.0

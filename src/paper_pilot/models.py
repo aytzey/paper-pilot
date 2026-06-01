@@ -17,6 +17,25 @@ def normalize_doi(value: str | None) -> str | None:
     return cleaned or None
 
 
+def normalize_arxiv_id(value: str | None) -> str | None:
+    """Extract a version-stripped arXiv id from a URL, id, or 'arXiv:...' string.
+
+    Collapses abs/pdf/versioned forms so the same paper dedupes (e.g.
+    arxiv.org/abs/2301.12345v2 and arxiv.org/pdf/2301.12345 -> '2301.12345').
+    """
+    if not value:
+        return None
+    # Modern ids: 2301.12345 (optionally vN), with optional category prefix.
+    match = re.search(r"(\d{4}\.\d{4,5})(?:v\d+)?", value)
+    if match:
+        return match.group(1)
+    # Legacy ids: hep-th/9901001, math.AG/0309136 (optionally vN).
+    match = re.search(r"([a-z][a-z\-]+(?:\.[A-Z]{2})?/\d{7})(?:v\d+)?", value)
+    if match:
+        return match.group(1)
+    return None
+
+
 def normalize_title(value: str | None) -> str:
     if not value:
         return ""
@@ -56,8 +75,10 @@ class PaperRecord:
         doi = normalize_doi(self.doi)
         if doi:
             return f"doi:{doi}"
-        if self.url and "arxiv.org" in self.url:
-            return f"url:{self.url}"
+        if self.source == "arxiv" or (self.url and "arxiv.org" in self.url.lower()):
+            arxiv_id = normalize_arxiv_id(self.url) or normalize_arxiv_id(self.source_id)
+            if arxiv_id:
+                return f"arxiv:{arxiv_id}"
         return f"title:{normalize_title(self.title)}:{self.year or 'na'}"
 
     def rank_score(self) -> float:

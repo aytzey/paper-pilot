@@ -59,6 +59,7 @@ Changelog = "https://github.com/aytzey/paper-pilot/blob/main/CHANGELOG.md"
 [project.optional-dependencies]
 dev = [
   "pytest>=8.3.0",
+  "ruff>=0.6.0",
 ]
 
 [project.scripts]
@@ -68,6 +69,15 @@ paper-pilot = "paper_pilot.cli:main"
 pythonpath = ["src"]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "W"]
+ignore = ["B008", "E501"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/paper_pilot"]

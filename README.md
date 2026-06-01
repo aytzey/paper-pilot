@@ -1,10 +1,13 @@
+<!-- mcp-name: io.github.aytzey/paper-pilot -->
 ![Paper Pilot](docs/hero.svg)
 
 # Paper Pilot
 
 **Your AI's research copilot.**
 
-Your AI Googles when you say "research." Paper Pilot actually searches real academic databases, downloads the PDFs, reads them cover to cover, and gives you evidence with citations.
+*An MCP server that gives Claude, Codex, and any AI agent real academic research — 6 databases, full-text PDFs, evidence with citations, figure rendering, and Zotero sync.*
+
+Your AI Googles when you say "research." Paper Pilot actually searches real academic databases, downloads the PDFs, reads them cover to cover, renders the figures, and gives you evidence with citations — then files it all in your Zotero library.
 
 [![CI](https://github.com/aytzey/paper-pilot/actions/workflows/ci.yml/badge.svg)](https://github.com/aytzey/paper-pilot/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/paper-pilot)](https://pypi.org/project/paper-pilot/)
@@ -14,19 +17,31 @@ Your AI Googles when you say "research." Paper Pilot actually searches real acad
 
 ---
 
-![Demo](docs/demo.gif)
+![Paper Pilot in action](docs/demo.gif)
+
+---
 
 ## Quick start
 
-```bash
-uvx paper-pilot
-```
-
-That's it. Or install it:
+**Try it in 30 seconds — no MCP client, no config:**
 
 ```bash
-pip install paper-pilot
+# straight from GitHub (works today):
+uvx --from git+https://github.com/aytzey/paper-pilot paper-pilot demo "retrieval augmented generation"
+
+# once published to PyPI:
+uvx paper-pilot demo "retrieval augmented generation"
 ```
+
+This searches 6 academic databases, downloads the open-access PDFs, reads them, writes a structured report, and opens an **interactive citation graph** in your browser.
+
+👉 **See a real run, no install needed:** [sample report](examples/sample-report.md) · [interactive citation graph](examples/sample-citation-graph.html)
+
+### Then plug it into your AI agent
+
+Wire it into your MCP client ([setup below](#mcp-client-setup)), set a free `OPENALEX_EMAIL`, and just ask:
+
+> *Research retrieval-augmented generation, deep-read the top papers, and compare the methods.*
 
 ---
 
@@ -51,7 +66,7 @@ Research retrieval-augmented generation, deep-read the top papers, and compare t
 
 Your AI will:
 
-1. Search **Semantic Scholar**, **OpenAlex**, **arXiv**, **Crossref**, and **Europe PMC**
+1. Search **Semantic Scholar**, **OpenAlex**, **arXiv**, **Crossref**, **Europe PMC**, and **DOAJ**
 2. Find the open-access PDFs, not just abstracts
 3. Download and read them cover to cover
 4. Extract evidence chunks with source attribution
@@ -130,17 +145,22 @@ paper-pilot --transport streamable-http --host 127.0.0.1 --port 8000
 
 | Tool | What it does |
 |---|---|
-| `research_topic` | Full pipeline: search, download, report, Zotero sync |
+| `research_topic` | Full pipeline: search, download, report, optional citation graph + Zotero sync |
 | `deep_read_topic` | Everything above + full-text extraction with evidence chunks |
+| `graph_topic` | Render an interactive citation / relatedness graph (HTML) for a topic |
 | `render_pdf_pages` | PDF pages to PNG for figure and table inspection |
-| `search_literature` | Fine-grained multi-source academic search |
+| `search_literature` | Fine-grained multi-source academic search (6 databases) |
 | `find_similar_papers` | Related work expansion from a seed paper |
 | `inspect_open_access_pdf` | OA availability check and PDF preview |
 | `extract_local_pdf_text` | Text extraction from any local PDF |
+| `list_zotero_collections` | List collections in your local or web Zotero library |
 | `search_scihub` | Search Sci-Hub by DOI, title, or keyword (opt-in) |
 | `download_scihub_paper` | Download a paper via Sci-Hub by DOI (opt-in) |
-| `search_libgen` | Supplementary shadow library search |
+| `search_libgen` | Supplementary shadow library search (opt-in) |
+| `inspect_libgen_item` | Resolve a LibGen mirror item and preview its PDF (opt-in) |
 | `healthcheck` | Verify all connections are up |
+
+> Prefer the CLI? `paper-pilot demo "<topic>"` runs the whole pipeline and opens the citation graph — no MCP client required.
 
 ---
 
@@ -185,9 +205,11 @@ ZOTERO_API_KEY=
 
 # Sci-Hub (disabled by default)
 SCIHUB_ENABLED=false
+INSECURE_SHADOW_TLS=false              # opt in to skip TLS verification for Sci-Hub/LibGen mirrors
 
 # Storage
 PAPER_PILOT_DATA_DIR=./data
+MAX_DOWNLOAD_MB=75                     # per-PDF download size cap
 
 # Institutional networks
 HTTP_PROXY=
@@ -202,15 +224,19 @@ SSL_CERT_FILE=
 ```
 src/paper_pilot/
   server.py              MCP tools and pipeline orchestration
+  cli.py                 Server entry point + `demo` subcommand
+  demo.py                Zero-config one-command demo runner
   config.py              Environment and settings
   services/
-    academic.py          Multi-source scholarly search
+    academic.py          Multi-source scholarly search (6 databases)
     open_access.py       OA resolution and PDF downloads
     scihub.py            Sci-Hub paper resolution (opt-in)
     deep_read.py         Full-text extraction and page rendering
     zotero.py            Local and web Zotero integration
-    reporting.py         Markdown report generation
+    reporting.py         Markdown report + synthesis comparison tables
+    graphing.py          Interactive citation-graph HTML export
     libgen.py            Supplementary LibGen support
+    net.py               SSRF guard + size-capped downloads
 ```
 
 Architecture details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)

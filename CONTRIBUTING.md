@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for contributing to `deep-research-mcp`.
+Thanks for contributing to `paper-pilot`.
 
 ## Development Setup
 

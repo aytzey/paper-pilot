@@ -13,8 +13,8 @@ uv build
 
 Artifacts are written to `dist/`:
 
-- `deep_research_mcp-<version>.tar.gz`
-- `deep_research_mcp-<version>-py3-none-any.whl`
+- `paper_pilot-<version>.tar.gz`
+- `paper_pilot-<version>-py3-none-any.whl`
 
 ## GitHub Release Flow
 
@@ -37,9 +37,11 @@ The repository includes a manual `publish-pypi.yml` workflow designed for PyPI T
 
 Recommended setup:
 
-1. Create the `deep-research-mcp` project on PyPI
-2. In PyPI, add a Trusted Publisher for this GitHub repository and workflow
+1. Create the `paper-pilot` project on PyPI (the name is currently unclaimed)
+2. In PyPI, add a Trusted Publisher for this GitHub repository and the `publish-pypi.yml` workflow (environment `pypi`)
 3. Run the `Publish to PyPI` workflow from GitHub Actions
+
+See [launch/PYPI_PUBLISH.md](launch/PYPI_PUBLISH.md) for the full step-by-step.
 
 The workflow can target:
 

@@ -12,6 +12,7 @@ except ModuleNotFoundError:  # pragma: no cover - compatibility fallback
 
 from paper_pilot.config import Settings
 from paper_pilot.models import DownloadedDocument, PaperRecord, slugify, utc_timestamp
+from paper_pilot.services.net import download_capped, is_public_http_url
 
 
 class OpenAccessService:
@@ -71,13 +72,13 @@ class OpenAccessService:
     async def _download_pdf(self, client: httpx.AsyncClient, topic: str, paper: PaperRecord) -> Path:
         if not paper.pdf_url:
             raise ValueError("No PDF URL available for this record.")
+        if not is_public_http_url(paper.pdf_url):
+            raise ValueError(f"Refusing to fetch non-public PDF URL: {paper.pdf_url}")
         last_error: Exception | None = None
         content = b""
         for attempt in range(3):
             try:
-                response = await client.get(paper.pdf_url)
-                response.raise_for_status()
-                content = response.content
+                content = await download_capped(client, paper.pdf_url, self.settings.max_download_bytes)
                 if not content.startswith(b"%PDF"):
                     raise ValueError("Downloaded content does not appear to be a PDF.")
                 break
@@ -89,8 +90,12 @@ class OpenAccessService:
         if not content.startswith(b"%PDF"):
             raise ValueError(f"Failed to download PDF: {last_error}")
         filename = f"{slugify(topic)}-{slugify(paper.title, 50)}-{utc_timestamp()}.pdf"
-        destination = self.settings.data_dir / "downloads" / filename
-        destination.write_bytes(content)
+        downloads_dir = self.settings.data_dir / "downloads"
+        downloads_dir.mkdir(parents=True, exist_ok=True)
+        destination = downloads_dir / filename
+        tmp = destination.with_suffix(".pdf.part")
+        tmp.write_bytes(content)
+        tmp.replace(destination)
         return destination
 
     def inspect_local_pdf(self, paper: PaperRecord, path: Path, max_pages: int = 5, max_chars: int = 12000) -> DownloadedDocument:

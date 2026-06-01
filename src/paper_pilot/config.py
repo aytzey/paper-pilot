@@ -29,6 +29,8 @@ class Settings:
     scihub_mirrors: tuple[str, ...] = ("https://sci-hub.se", "https://sci-hub.st", "https://sci-hub.ru")
     scihub_timeout_sec: float = 30.0
     scihub_enabled: bool = False
+    max_download_bytes: int = 75 * 1024 * 1024
+    insecure_shadow_tls: bool = False
 
     @property
     def effective_zotero_library_id(self) -> str | None:
@@ -79,6 +81,26 @@ class Settings:
         return self.data_dir / "renders"
 
 
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 def load_settings() -> Settings:
     load_dotenv()
     data_dir = Path(os.getenv("PAPER_PILOT_DATA_DIR", os.getenv("DEEP_RESEARCH_DATA_DIR", os.getenv("ZOTERO_RESEARCHER_DATA_DIR", "./data")))).expanduser().resolve()
@@ -96,8 +118,10 @@ def load_settings() -> Settings:
         ).split(",")
         if mirror.strip()
     )
-    zotero_local = os.getenv("ZOTERO_LOCAL", "").strip().lower() in {"1", "true", "yes", "on"}
-    scihub_enabled = os.getenv("SCIHUB_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+    truthy = {"1", "true", "yes", "on"}
+    zotero_local = os.getenv("ZOTERO_LOCAL", "").strip().lower() in truthy
+    scihub_enabled = os.getenv("SCIHUB_ENABLED", "false").strip().lower() in truthy
+    insecure_shadow_tls = os.getenv("INSECURE_SHADOW_TLS", "false").strip().lower() in truthy
     scihub_mirrors = tuple(
         m.strip().rstrip("/")
         for m in os.getenv(
@@ -114,17 +138,19 @@ def load_settings() -> Settings:
         zotero_api_key=os.getenv("ZOTERO_API_KEY"),
         data_dir=data_dir,
         libgen_mirrors=mirrors,
-        libgen_timeout_sec=float(os.getenv("LIBGEN_TIMEOUT_SEC", "20")),
+        libgen_timeout_sec=_env_float("LIBGEN_TIMEOUT_SEC", 20.0),
         unpaywall_email=os.getenv("UNPAYWALL_EMAIL") or os.getenv("OPENALEX_EMAIL"),
         ssl_cert_file=os.getenv("SSL_CERT_FILE"),
         http_proxy=os.getenv("HTTP_PROXY") or os.getenv("http_proxy"),
         https_proxy=os.getenv("HTTPS_PROXY") or os.getenv("https_proxy"),
         no_proxy=os.getenv("NO_PROXY") or os.getenv("no_proxy"),
-        cache_ttl_sec=int(os.getenv("CACHE_TTL_SEC", "86400")),
+        cache_ttl_sec=_env_int("CACHE_TTL_SEC", 86400),
         zotero_local=zotero_local,
         zotero_connector_url=os.getenv("ZOTERO_CONNECTOR_URL", "http://127.0.0.1:23119/connector/saveItems"),
         zotero_bridge_url=os.getenv("ZOTERO_BRIDGE_URL", "http://127.0.0.1:24119") or None,
         scihub_mirrors=scihub_mirrors,
-        scihub_timeout_sec=float(os.getenv("SCIHUB_TIMEOUT_SEC", "30")),
+        scihub_timeout_sec=_env_float("SCIHUB_TIMEOUT_SEC", 30.0),
         scihub_enabled=scihub_enabled,
+        max_download_bytes=max(_env_int("MAX_DOWNLOAD_MB", 75), 1) * 1024 * 1024,
+        insecure_shadow_tls=insecure_shadow_tls,
     )
