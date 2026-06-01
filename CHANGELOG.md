@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.0 - 2026-06-01
+
+### Changed
+- **Better research quality.** Results are re-ranked by topic relevance first (query-term coverage
+  in the title and abstract, plus an exact-phrase bonus), then by citations, recency, and open-access.
+  Precise on-topic papers now outrank merely famous-but-tangential ones, instead of citation count
+  dominating. New `PaperRecord.relevance_score()` / `quality_score()`.
+
+### Added
+- `ZOTERO_DATA_DIR` env var: point Paper Pilot at a relocated or sandboxed (e.g. Flatpak) Zotero
+  data directory on any OS. Local-Zotero PDF staging targets it (default `~/Zotero`, resolved
+  cross-platform via pathlib), and `healthcheck` reports it.
+
 ## 0.6.3 - 2026-06-01
 
 ### Fixed

@@ -132,6 +132,9 @@ class AcademicSearchService:
                     "results that may be closed-access."
                 )
             merged = oa_only or merged
+        # Re-rank by topic relevance first, then citations/recency/OA, so precise matches
+        # outrank merely famous-but-tangential papers.
+        merged = sorted(merged, key=lambda record: record.quality_score(topic), reverse=True)
         return SearchBundle(results=merged, warnings=warnings)
 
     async def recommend_similar(

@@ -55,6 +55,30 @@ def test_local_collection_creation_requires_bridge(tmp_path: Path, monkeypatch: 
         service._resolve_collection_sync(None, None, "Research - Test")
 
 
+def test_zotero_data_dir_config_and_staging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    zdir = tmp_path / "zotero-data"
+    zdir.mkdir()
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+    service = ZoteroService(_settings(tmp_path, zotero_local=True, zotero_data_dir=str(zdir)))
+
+    assert service._zotero_data_dir() == zdir.resolve()
+
+    # a PDF already under the data dir is imported in place
+    inside = zdir / "in.pdf"
+    inside.write_bytes(b"%PDF-1.4")
+    assert service._stage_path_for_local_zotero(inside) == inside.resolve()
+
+    # a PDF outside the data dir and home is copied into the staging folder
+    outside = tmp_path / "elsewhere" / "p.pdf"
+    outside.parent.mkdir(parents=True, exist_ok=True)
+    outside.write_bytes(b"%PDF-1.4 body")
+    staged = service._stage_path_for_local_zotero(outside)
+    assert staged.parent == (zdir.resolve() / ".paper-pilot-staging")
+    assert staged.read_bytes().startswith(b"%PDF")
+
+
 def test_connector_item_marks_arxiv_metadata(tmp_path: Path) -> None:
     service = ZoteroService(_settings(tmp_path, zotero_local=True))
     paper = PaperRecord(

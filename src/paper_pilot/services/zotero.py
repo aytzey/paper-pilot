@@ -31,6 +31,7 @@ class ZoteroService:
         if self.settings.zotero_mode == "local":
             status["connector_url"] = self.settings.zotero_connector_url
             status["bridge_url"] = self.settings.zotero_bridge_url
+            status["data_dir"] = str(self._zotero_data_dir())
 
             api_check = self._local_api_check()
             status["local_api_reachable"] = api_check["reachable"]
@@ -583,18 +584,33 @@ class ZoteroService:
             time.sleep(poll_sec)
         return None
 
+    def _zotero_data_dir(self) -> Path:
+        """The Zotero data directory (default ~/Zotero), overridable via ZOTERO_DATA_DIR.
+
+        Cross-platform via pathlib: ~/Zotero resolves to C:\\Users\\<you>\\Zotero on Windows,
+        /Users/<you>/Zotero on macOS, /home/<you>/Zotero on Linux. Set ZOTERO_DATA_DIR if you
+        relocated Zotero's data directory or run a sandboxed (e.g. Flatpak) install.
+        """
+        if self.settings.zotero_data_dir:
+            return Path(self.settings.zotero_data_dir).expanduser().resolve()
+        return (Path.home() / "Zotero").resolve()
+
     def _stage_path_for_local_zotero(self, path: Path) -> Path:
         resolved = path.expanduser().resolve()
-        home = Path.home().resolve()
-        try:
-            resolved.relative_to(home)
-            return resolved
-        except ValueError:
-            staging_dir = home / "Zotero" / ".paper-pilot-staging"
-            staging_dir.mkdir(parents=True, exist_ok=True)
-            staged = staging_dir / resolved.name
-            shutil.copy2(resolved, staged)
-            return staged
+        data_dir = self._zotero_data_dir()
+        # If the file already lives where Zotero can read it (its data dir or the user's home),
+        # import it in place; otherwise copy it into a staging folder Zotero can reach.
+        for root in (data_dir, Path.home().resolve()):
+            try:
+                resolved.relative_to(root)
+                return resolved
+            except ValueError:
+                continue
+        staging_dir = data_dir / ".paper-pilot-staging"
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        staged = staging_dir / resolved.name
+        shutil.copy2(resolved, staged)
+        return staged
 
     def _find_existing_item(self, client: pyzotero.Zotero, paper: PaperRecord) -> dict[str, Any] | None:
         queries = [value for value in (paper.doi, paper.title) if value]

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "paper-pilot"
-version = "0.6.3"
+version = "0.7.0"
 description = "Your AI's research copilot. Searches 6 academic databases, downloads real PDFs, reads them cover to cover, extracts evidence, renders figures. MCP server for Claude, Codex & any AI agent."
 readme = "README.md"
 requires-python = ">=3.11"

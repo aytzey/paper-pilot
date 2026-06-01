@@ -26,6 +26,7 @@ class Settings:
     zotero_local: bool = False
     zotero_connector_url: str = "http://127.0.0.1:23119/connector/saveItems"
     zotero_bridge_url: str | None = "http://127.0.0.1:24119"
+    zotero_data_dir: str | None = None
     scihub_mirrors: tuple[str, ...] = ("https://sci-hub.se", "https://sci-hub.st", "https://sci-hub.ru")
     scihub_timeout_sec: float = 30.0
     scihub_enabled: bool = False
@@ -152,6 +153,7 @@ def load_settings() -> Settings:
         zotero_local=zotero_local,
         zotero_connector_url=os.getenv("ZOTERO_CONNECTOR_URL", "http://127.0.0.1:23119/connector/saveItems"),
         zotero_bridge_url=os.getenv("ZOTERO_BRIDGE_URL", "http://127.0.0.1:24119") or None,
+        zotero_data_dir=os.getenv("ZOTERO_DATA_DIR") or None,
         scihub_mirrors=scihub_mirrors,
         scihub_timeout_sec=_env_float("SCIHUB_TIMEOUT_SEC", 30.0),
         scihub_enabled=scihub_enabled,

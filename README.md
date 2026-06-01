@@ -222,6 +222,7 @@ SEMANTIC_SCHOLAR_API_KEY=             # Optional, higher rate limits
 # Local Zotero
 ZOTERO_LOCAL=true
 ZOTERO_LIBRARY_TYPE=user
+ZOTERO_DATA_DIR=                       # optional: relocated/sandboxed Zotero data dir (default ~/Zotero)
 
 # Web Zotero API (alternative)
 ZOTERO_LIBRARY_ID=

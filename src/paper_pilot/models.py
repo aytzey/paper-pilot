@@ -36,6 +36,24 @@ def normalize_arxiv_id(value: str | None) -> str | None:
     return None
 
 
+_RANK_STOPWORDS = frozenset(
+    {
+        "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "into",
+        "is", "it", "of", "on", "or", "that", "the", "their", "this", "to", "with",
+        "using", "based", "via", "toward", "towards", "study", "approach", "review",
+    }
+)
+
+
+def _content_tokens(text: str | None) -> list[str]:
+    """Lowercased content words (>=2 chars) with common stopwords removed."""
+    return [
+        token
+        for token in re.findall(r"[a-z0-9][a-z0-9-]+", (text or "").lower())
+        if token not in _RANK_STOPWORDS
+    ]
+
+
 def normalize_title(value: str | None) -> str:
     if not value:
         return ""
@@ -88,6 +106,25 @@ class PaperRecord:
         related_score = self.related_score or 0.0
         abstract_score = min(len(self.abstract or "") / 700.0, 1.5)
         return citation_score + recency_score + oa_score + related_score + abstract_score
+
+    def relevance_score(self, query: str | None) -> float:
+        """Lexical relevance of this paper to the query topic (title + abstract coverage)."""
+        tokens = list(dict.fromkeys(_content_tokens(query)))
+        if not tokens:
+            return 0.0
+        title_tokens = set(normalize_title(self.title).split())
+        abstract = (self.abstract or "").lower()
+        title_coverage = sum(1 for token in tokens if token in title_tokens) / len(tokens)
+        abstract_coverage = sum(1 for token in tokens if token in abstract) / len(tokens)
+        score = title_coverage * 8.0 + abstract_coverage * 3.0
+        normalized_query = normalize_title(query)
+        if normalized_query and normalized_query in normalize_title(self.title):
+            score += 3.0  # exact topic phrase in the title
+        return score
+
+    def quality_score(self, query: str | None = None) -> float:
+        """Combined ranking: topic relevance dominates, then citations / recency / OA."""
+        return self.relevance_score(query) * 4.0 + self.rank_score()
 
     def to_dict(self) -> dict[str, Any]:
         return {
