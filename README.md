@@ -3,14 +3,12 @@
 
 # Paper Pilot
 
-**Your AI's research copilot.**
-
-*An MCP server that gives Claude, Codex, and any AI agent real academic research: 6 databases, full-text PDFs, evidence with citations, figure rendering, and Zotero sync.*
+**Give any MCP-capable agent real academic research: 16 tools over 6 scholarly databases, open-access PDF full-text reading, cited evidence extraction, citation graphs, and Zotero sync.**
 
 Your AI Googles when you say "research." Paper Pilot searches real academic databases, downloads the PDFs, reads them cover to cover, renders the figures, gives you evidence with citations, and files it all in your Zotero library.
 
 [![CI](https://github.com/aytzey/paper-pilot/actions/workflows/ci.yml/badge.svg)](https://github.com/aytzey/paper-pilot/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/paper-pilot)](https://pypi.org/project/paper-pilot/)
+[![Release](https://img.shields.io/github/v/release/aytzey/paper-pilot)](https://github.com/aytzey/paper-pilot/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](pyproject.toml)
 [![GitHub stars](https://img.shields.io/github/stars/aytzey/paper-pilot?style=social)](https://github.com/aytzey/paper-pilot/stargazers)
@@ -107,8 +105,7 @@ Add to `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claud
       "env": {
         "OPENALEX_EMAIL": "you@example.com",
         "UNPAYWALL_EMAIL": "you@example.com",
-        "ZOTERO_LOCAL": "true",
-        "SCIHUB_ENABLED": "false"
+        "ZOTERO_LOCAL": "true"
       }
     }
   }
@@ -178,27 +175,11 @@ paper-pilot --transport streamable-http --host 127.0.0.1 --port 8000
 | `inspect_open_access_pdf` | OA availability check and PDF preview |
 | `extract_local_pdf_text` | Text extraction from any local PDF |
 | `list_zotero_collections` | List collections in your local or web Zotero library |
-| `search_scihub` | Search Sci-Hub by DOI, title, or keyword (opt-in) |
-| `download_scihub_paper` | Download a paper via Sci-Hub by DOI (opt-in) |
-| `search_libgen` | Supplementary shadow library search (opt-in) |
-| `inspect_libgen_item` | Resolve a LibGen mirror item and preview its PDF (opt-in) |
 | `healthcheck` | Verify all connections are up |
 
+Four additional optional tools (disabled by default) are documented in [docs/EXTRAS.md](docs/EXTRAS.md).
+
 > Prefer the CLI? `paper-pilot demo "<topic>"` runs the whole pipeline and opens the citation graph. No MCP client required.
-
----
-
-## Sci-Hub integration (opt-in)
-
-Sci-Hub access is **disabled by default**. To opt in:
-
-```bash
-SCIHUB_ENABLED=true
-```
-
-Once enabled, use `search_scihub` and `download_scihub_paper` directly, or pass `include_scihub=True` to `research_topic` / `deep_read_topic` for automatic fallback.
-
-> **Disclaimer:** Sci-Hub integration is provided strictly for educational and research purposes. Users are solely responsible for compliance with applicable laws and institutional policies.
 
 ---
 
@@ -227,10 +208,6 @@ ZOTERO_DATA_DIR=                       # optional: relocated/sandboxed Zotero da
 # Web Zotero API (alternative)
 ZOTERO_LIBRARY_ID=
 ZOTERO_API_KEY=
-
-# Sci-Hub (disabled by default)
-SCIHUB_ENABLED=false
-INSECURE_SHADOW_TLS=false              # opt in to skip TLS verification for Sci-Hub/LibGen mirrors
 
 # Storage
 PAPER_PILOT_DATA_DIR=./data
@@ -296,7 +273,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Disclaimer
 
-This tool is designed for academic research and educational purposes only. Open-access features use only legal, publicly available sources. Sci-Hub and LibGen integrations are disabled by default and provided as opt-in features.
+This tool is designed for academic research and educational purposes only. Open-access features use only legal, publicly available sources. Optional, disabled-by-default integrations are covered in [docs/EXTRAS.md](docs/EXTRAS.md).
 
 ---
 
