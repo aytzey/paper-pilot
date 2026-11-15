@@ -97,10 +97,25 @@ class AcademicSearchService:
         self.settings = settings
 
     def _headers(self) -> dict[str, str]:
-        headers = {"User-Agent": self._user_agent()}
-        if self.settings.semantic_scholar_api_key:
-            headers["x-api-key"] = self.settings.semantic_scholar_api_key
-        return headers
+        return {"User-Agent": self._user_agent()}
+
+    def _auth_headers(self, url: str) -> dict[str, str]:
+        """An API key is sent only to the service it belongs to, and never in a URL that a warning could echo."""
+        if url.startswith("https://api.semanticscholar.org/") and self.settings.semantic_scholar_api_key:
+            return {"x-api-key": self.settings.semantic_scholar_api_key}
+        if url.startswith("https://api.openalex.org/") and self.settings.openalex_api_key:
+            return {"Authorization": f"Bearer {self.settings.openalex_api_key}"}
+        return {}
+
+    def _rate_limit_hint(self, source_name: str, exc: Exception) -> str:
+        if "429" not in str(exc):
+            return ""
+        if source_name == "semantic_scholar" and not self.settings.semantic_scholar_api_key:
+            return " (its keyless pool is usually rate-limited; set SEMANTIC_SCHOLAR_API_KEY)"
+        if source_name == "openalex" and not self.settings.openalex_api_key:
+            return (" (keyless requests share a small daily budget per network, about 100 searches, "
+                    "reset at midnight UTC; set OPENALEX_API_KEY, keys are free)")
+        return ""
 
     def _user_agent(self) -> str:
         if self.settings.openalex_email:
@@ -139,10 +154,8 @@ class AcademicSearchService:
                         or (state.get("token") is not None and not isinstance(state["token"], str))):
                     raise ValueError("Invalid Semantic Scholar bulk cursor.")
             else:
-                bounds = {"arxiv": (0, 30000), "doaj": (1, 1000001),
+                bounds = {"arxiv": (0, 30000), "doaj": (1, 1000001), "crossref": (0, 10000),
                           "semantic_scholar": (0, 1000)}.get(source)
-                if source == "crossref" and sort_by == "newest":
-                    bounds = (0, 10000)
                 if bounds and (not cursor.isdecimal() or not bounds[0] <= int(cursor) < bounds[1]):
                     raise ValueError(f"Invalid {source} page cursor; narrow the query if its result limit was reached.")
         selected = SOURCES if source == "all" else (source,)
@@ -167,10 +180,9 @@ class AcademicSearchService:
             for source_name, result in zip(selected, gathered, strict=True):
                 current_request = {**request, "source": source_name, "cursor": cursor}
                 if isinstance(result, Exception):
-                    hint = ""
-                    if source_name == "semantic_scholar" and "429" in str(result) and not self.settings.semantic_scholar_api_key:
-                        hint = " (its keyless pool is usually rate-limited; set SEMANTIC_SCHOLAR_API_KEY)"
-                    warnings.append(f"{source_name} search failed: {self._format_exception(result)}{hint}")
+                    warnings.append(
+                        f"{source_name} search failed: {self._format_exception(result)}{self._rate_limit_hint(source_name, result)}"
+                    )
                     source_status.append({"source": source_name, "status": "error", "sort_requested": sort_by,
                                           "error": type(result).__name__, "retry_request": current_request})
                     continue
@@ -228,10 +240,8 @@ class AcademicSearchService:
                     "fields": RECOMMENDATION_FIELDS,
                     "from": "recent",
                 }
-                response = await client.get(
-                    f"https://api.semanticscholar.org/recommendations/v1/papers/forpaper/{paper_id}",
-                    params=params,
-                )
+                recommendations_url = f"https://api.semanticscholar.org/recommendations/v1/papers/forpaper/{paper_id}"
+                response = await client.get(recommendations_url, params=params, headers=self._auth_headers(recommendations_url))
                 response.raise_for_status()
                 data = response.json()
                 records = combine_papers([
@@ -243,7 +253,11 @@ class AcademicSearchService:
                     records = [record for record in records if record.is_open_access or record.pdf_url] or records
                 return SearchBundle(results=sorted(records, key=lambda record: record.rank_score(), reverse=True), warnings=warnings)
         except Exception as exc:
-            fallback = await self.search_literature(seed_title, limit_per_source=max(limit // 2, 1), open_access_only=open_access_only)
+            # One Crossref query instead of all six sources again: a second OpenAlex search per
+            # pipeline run would halve the keyless daily budget for a list of title neighbours.
+            fallback = await self.search_literature(
+                seed_title, limit_per_source=limit, open_access_only=open_access_only, source="crossref",
+            )
             fallback.warnings.append(
                 f"Semantic Scholar recommendation endpoint unavailable ({self._format_exception(exc)}); fell back to keyword search."
             )
@@ -404,19 +418,19 @@ class AcademicSearchService:
         to_year: int | None,
         *, sort_by: SearchOrder = "relevance", cursor: str | None = None,
     ) -> SearchPage:
+        # Pages are addressed by offset. Crossref's deep-paging cursor drops relevance ordering
+        # (cursor=* turns the first page into unrelated records) and rejects date sorting.
+        offset = int(cursor or "0")
+        if not 0 <= offset < 10000:
+            raise ValueError("Crossref paging exposes at most 10000 results; narrow the query/year range.")
         params: dict[str, Any] = {
             "query.bibliographic": topic,
-            "rows": limit,
+            "rows": min(limit, 10000 - offset),
+            "offset": offset,
             "mailto": self.settings.openalex_email or None,
         }
-        offset = 0
         if sort_by == "newest":
-            offset = int(cursor or "0")
-            if not 0 <= offset < 10000:
-                raise ValueError("Crossref date sorting exposes at most 10000 results; narrow the query/year range.")
-            params.update(sort="published", order="desc", offset=offset, rows=min(limit, 10000 - offset))
-        else:
-            params["cursor"] = cursor or "*"
+            params.update(sort="published", order="desc")
         filters: list[str] = []
         if from_year:
             filters.append(f"from-pub-date:{from_year}-01-01")
@@ -433,18 +447,15 @@ class AcademicSearchService:
         message = data.get("message") or {}
         items = message.get("items", [])
         total = message.get("total-results")
-        limited = False
-        if sort_by == "newest":
-            end = offset + len(items)
-            more = bool(items) and (end < total if total is not None else len(items) == params["rows"])
-            limited = more and end >= 10000
-            next_cursor = str(end) if more and not limited else None
-        else:
-            next_cursor = message.get("next-cursor") if len(items) == limit else None
+        end = offset + len(items)
+        more = bool(items) and (end < total if total is not None else len(items) == params["rows"])
+        limited = more and end >= 10000
+        next_cursor = str(end) if more and not limited else None
         notes = ["Crossref PDF links may require publisher access; metadata is not full-text evidence."]
-        if sort_by == "newest":
-            notes.append("Crossref does not support publication-date sorting with native cursors; offset paging stops at 10000. Narrow the query/year range to continue.")
-        return SearchPage([self._paper_from_crossref(item) for item in items],
+        if limited:
+            notes.append("Crossref paging stops at 10000 results. Narrow the query/year range to continue.")
+        # A "component" is a supplement file or figure registered under its own DOI, not a paper.
+        return SearchPage([self._paper_from_crossref(item) for item in items if item.get("type") != "component"],
                           next_cursor, total, "publication_date" if sort_by == "newest" else "relevance", notes, limited)
 
     async def _search_europe_pmc(
@@ -915,8 +926,8 @@ class AcademicSearchService:
 
     @staticmethod
     def _format_exception(exc: Exception) -> str:
-        # httpx appends a second line of boilerplate and can quote a very long request URL.
-        message = str(exc).strip()
+        # httpx appends a second line of boilerplate and quotes the whole request URL.
+        message = re.sub(r" for url '[^']*'", "", str(exc).strip())
         return message.splitlines()[0][:300] if message else repr(exc)
 
     async def _get_json(
@@ -932,7 +943,9 @@ class AcademicSearchService:
         if cached and cached["expires_at"] > time.time():
             return cached["payload"]
         try:
-            response = await client.get(url, params=params, **({"timeout": timeout} if timeout is not None else {}))
+            response = await client.get(
+                url, params=params, headers=self._auth_headers(url), **({"timeout": timeout} if timeout is not None else {}),
+            )
             response.raise_for_status()
             payload = response.json()
             self._write_cache(cache_file, payload)

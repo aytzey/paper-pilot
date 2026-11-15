@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.9.0 - 2026-11-15
+
+### Fixed
+- **Crossref returned unrelated papers.** Relevance search sent `cursor=*`, which makes Crossref
+  drop its ranking: a query about soil pH sensors came back with obstetrics papers. Crossref is now
+  paged by offset in both sort orders, and supplement files registered under their own DOI are skipped.
+- **One dead host could stall a download for three minutes.** A host that does not answer is tried
+  once with a ten-second connect timeout; a busy server or broken transfer gets one retry.
+- API keys were sent to every host the search client talked to. Each key now goes only to its own
+  service, as a header, so it cannot appear in a URL quoted by a warning.
+- A paper whose title is exactly the query now ranks first, ahead of cited papers that merely
+  contain the phrase.
+
+### Added
+- **`download_paper(title=...)`.** With only a title, the exact title is looked up and that paper is
+  downloaded; a near miss is refused and the closest candidates are listed. Following a reference no
+  longer needs a full search round trip.
+- **`remaining_batches`.** The first text batch lists the arguments of every `read_pdf_text` call
+  still needed, so the rest of a paper can be requested in one step. `text_path` is returned too.
+  Tested against a build that returns paths only: Claude Code read the file itself and was slightly
+  faster, Codex ignored the file and made an extra call. See `examples/full-paper-walkthrough.md`.
+- `OPENALEX_API_KEY`. OpenAlex now rations keyless requests to about 100 searches a day per network.
+  When OpenAlex or Semantic Scholar is rate-limited, the warning says so and names the free key.
+- Publisher PDF addresses derived from the DOI for Frontiers, Nature, Springer and BMC, for
+  open-access articles that indexes list with a landing page only.
+
+### Changed
+- **Default data directory is `~/.paper-pilot`, not `./data`.** The server starts inside whatever
+  project the agent is working on; it no longer writes there or collides with the project's own
+  `data` folder, and a paper downloaded once is reused across projects. `PAPER_PILOT_DATA_DIR` still overrides.
+- A result list is held to one size budget as served: abstracts get what the metadata leaves over,
+  and a very long list becomes one line per paper. `search_literature` defaults to four results per
+  source. Default responses measured 4,300 to 7,400 tokens (o200k_base).
+- The fallback for similar papers is one Crossref query instead of a second search of all six sources.
+
 ## 0.8.0 - 2026-11-15
 
 The goal of this release: an agent that asks for a paper gets the whole paper, not its abstract.

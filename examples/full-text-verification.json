@@ -52,7 +52,8 @@
   }
  ],
  "limitations": [
-  "The transport sections are protocol-level; agent_sessions records one run per client on one paper.",
+  "The transport sections were recorded with v0.8.0 over stdio; v0.9.0 adds remaining_batches and text_path to a first batch and leaves the batches themselves unchanged.",
+  "agent_sessions records one run per client and build on one paper.",
   "This verifies delivered text, not model comprehension or visual inspection of every page."
  ],
  "pdf_transfer": {
@@ -171,46 +172,83 @@
    "error": "Error executing tool download_paper: Failed to download 10.1109/jsen.2024.3514735: No open-access full text is known for this paper: no PDF link, and neither Unpaywall nor PubMed Central has a copy. It is probably paywalled."
   }
  ],
- "default_response_chars": {
-  "search_literature": 25869,
-  "deep_read_topic": 29164,
-  "research_topic": 19571
- },
  "agent_sessions": {
   "date": "2026-11-15",
   "doi": "10.3390/s110100573",
   "pages": 26,
+  "questions": 4,
   "answer_pages": [
+   16,
    22,
    26
   ],
+  "figure_only_answer_page": 16,
   "prompt_gave_tool_instructions": false,
+  "own_file_tools_available": true,
   "sessions": [
    {
     "client": "Claude Code (headless)",
     "calls": [
      "download_paper",
-     "read_pdf_text",
-     "read_pdf_text",
-     "read_pdf_text"
+     "read_pdf_text x3 (one step)",
+     "render_pdf_pages"
     ],
     "reached_end_of_document": true,
-    "answers_correct": 3,
-    "largest_response_chars": 23261
+    "answers_correct": 4,
+    "seconds": 37
    },
    {
     "client": "Codex CLI 0.169.0 (exec)",
     "calls": [
      "download_paper",
-     "read_pdf_text",
-     "read_pdf_text",
-     "read_pdf_text",
+     "read_pdf_text x3",
      "render_pdf_pages"
     ],
     "reached_end_of_document": true,
-    "answers_correct": 3,
-    "largest_text_response_chars": 23999
+    "answers_correct": 4
+   }
+  ],
+  "text_over_mcp_versus_paths_only": [
+   {
+    "client": "Claude Code",
+    "text_over_mcp": {
+     "answers_correct": 4,
+     "seconds": 43,
+     "text_calls": 3
+    },
+    "paths_only": {
+     "answers_correct": 4,
+     "seconds": 30,
+     "native_file_reads": 2,
+     "opened_pdf_natively": false
+    }
+   },
+   {
+    "client": "Codex CLI 0.169.0",
+    "text_over_mcp": {
+     "answers_correct": 4,
+     "text_calls": 3
+    },
+    "paths_only": {
+     "answers_correct": 4,
+     "text_calls": 4,
+     "native_file_reads": 0,
+     "opened_pdf_natively": false
+    }
    }
   ]
+ },
+ "default_response_tokens": {
+  "tokenizer": "o200k_base",
+  "measured_at": "2026-11-15",
+  "search_literature": 5979,
+  "deep_read_topic": 7342,
+  "research_topic": 4274,
+  "download_paper": [
+   5376,
+   5995
+  ],
+  "read_pdf_text_full_batch": 6065,
+  "note": "OpenAlex and Semantic Scholar were rate-limited during this measurement; a search answered by all six sources is capped by the same budget and measured 7,380 tokens."
  }
 }

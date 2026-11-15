@@ -258,7 +258,7 @@ def test_deep_read_preserves_good_paper_when_another_is_corrupt(tmp_path: Path, 
 
 # Codex truncates tool output at roughly 10k tokens and Claude Code cuts server instructions at
 # about 2,000 characters. Text lost there never reaches the model, so the defaults must fit.
-CLIENT_OUTPUT_CHARS = 32000
+CLIENT_OUTPUT_CHARS = 30000
 
 
 def _long_pdf(path: Path, pages: int = 12) -> None:
@@ -312,11 +312,22 @@ def test_default_deep_read_fits_the_client_and_every_paper_can_be_continued(tmp_
         assert (first["page"], first["start_char"]) == (cursor["start_page"], cursor["start_char"])
 
 
-def test_search_results_share_one_abstract_budget(tmp_path: Path, monkeypatch) -> None:
+def _realistic_paper(i: int) -> PaperRecord:
+    return PaperRecord(
+        source="openalex", source_id=f"https://openalex.org/W{4000000000 + i}", doi=f"10.48550/arxiv.2310.{6000 + i:05d}",
+        title=f"A Fairly Long and Specific Paper Title About Transformers for Long-Horizon Forecasting, Part {i}",
+        authors=[f"Firstname{n} Lastname{n}" for n in range(9)], year=2024, publication_date="2024-03-11",
+        venue="Proceedings of the AAAI Conference on Artificial Intelligence", citation_count=1234, is_open_access=True,
+        url=f"https://ojs.aaai.org/index.php/AAAI/article/view/{26000 + i}",
+        pdf_url=f"https://ojs.aaai.org/index.php/AAAI/article/download/{26000 + i}/{26000 + i}",
+        abstract="Long abstract sentence about methods and results. " * 60, raw={"unpaywall": {"oa_locations": ["x" * 5000]}},
+    )
+
+
+@pytest.mark.parametrize("count,abstracts", [(24, True), (60, False)])
+def test_search_results_fit_one_budget_whatever_the_result_count(tmp_path: Path, monkeypatch, count, abstracts) -> None:
     service = AcademicSearchService(_settings(tmp_path))
-    papers = [PaperRecord(source="openalex", source_id=str(i), title=f"Paper {i}", doi=f"10.1234/{i}",
-                          abstract="Long abstract sentence. " * 200, raw={"unpaywall": {"oa_locations": ["x" * 5000]}})
-              for i in range(60)]
+    papers = [_realistic_paper(i) for i in range(count)]
 
     async def search(**kwargs):
         return SearchBundle(papers, [], [])
@@ -327,8 +338,12 @@ def test_search_results_share_one_abstract_budget(tmp_path: Path, monkeypatch) -
     served = _served_text("search_literature", {"topic": "anything", "limit_per_source": 10})
     assert len(served) <= CLIENT_OUTPUT_CHARS
     results = json.loads(served)["results"]
-    assert len(results) == 60 and "raw" not in results[0]
-    assert results[0]["abstract"].endswith("[abstract truncated]")
+    assert len(results) == count and "raw" not in results[0] and results[0]["doi"] and results[0]["pdf_url"]
+    # A default call (six sources, four each) carries abstracts to screen by; sixty results get a line each.
+    assert ("abstract" in results[0]) is abstracts
+    if abstracts:
+        assert results[0]["authors"][-1] == "+6 more" and "url" not in results[0]
+        assert results[0]["abstract"].endswith("[abstract truncated]") and len(results[0]["abstract"]) > 250
 
 
 def test_download_paper_starts_the_read_and_flags_a_stub(tmp_path: Path, monkeypatch) -> None:
@@ -340,7 +355,7 @@ def test_download_paper_starts_the_read_and_flags_a_stub(tmp_path: Path, monkeyp
     class FakeAccess:
         async def download_paper(self, pdf_url, title, doi, arxiv_id, pmcid):
             path = stub if doi == "10.1234/stub" else full
-            paper = PaperRecord(source="doi", source_id=doi, title=title, doi=doi,
+            paper = PaperRecord(source="doi", source_id=doi, title=title or doi, doi=doi,
                                 raw={"pdf_download": {"url": "https://example.org/a.pdf", "resolver": "unpaywall", "location": None}})
             return OpenAccessService(server.get_settings()).inspect_local_pdf(paper, path)
 
@@ -350,6 +365,25 @@ def test_download_paper_starts_the_read_and_flags_a_stub(tmp_path: Path, monkeyp
     assert result["paper"]["downloaded_from"]["resolver"] == "unpaywall"
     assert result["full_text"]["pages"][0]["page"] == 1 and result["full_text"]["next_cursor"]
     assert "extracted_preview" not in result
+    # The same text is on disk for agents that prefer their own file tools.
+    assert "Page 12 line 35" in Path(result["text_path"]).read_text(encoding="utf-8")
 
     stub_result = asyncio.run(server.download_paper(doi="10.1234/stub"))
     assert any("may be an abstract" in warning for warning in stub_result["warnings"])
+
+
+def test_remaining_batches_fetched_in_any_order_rebuild_the_whole_paper(tmp_path: Path, monkeypatch) -> None:
+    _patch_settings(tmp_path, monkeypatch)
+    pdf = tmp_path / "long.pdf"
+    _long_pdf(pdf, pages=30)
+    first = server._first_batch(pdf)
+    plan = first["remaining_batches"]
+    assert first["remaining_batch_count"] == len(plan) >= 2
+    assert plan[0] == {**first["next_cursor"], "max_chars": 20000}
+    # Fetch out of order, as parallel tool calls return, then put the batches back by position.
+    batches = [first] + [server.read_pdf_text(str(pdf), **arguments) for arguments in reversed(plan)]
+    segments = sorted((page["page"], page["start_char"], page["text"]) for batch in batches for page in batch["pages"])
+    expected = "".join(page["text"] for page in server.get_pdf_page_text(str(pdf), list(range(1, 31)))["pages"])
+    assert "".join(text for _, _, text in segments) == expected
+    assert sum(batch["next_cursor"] is None for batch in batches) == 1
+    assert "remaining_batches" not in server.read_pdf_text(str(pdf))  # only a first batch carries the plan

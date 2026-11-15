@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -12,7 +13,7 @@ from paper_pilot.models import PaperRecord
 from paper_pilot.services import content
 from paper_pilot.services.academic import AcademicSearchService, SearchOrder, SearchSource
 from paper_pilot.services.content import PdfTooLargeError
-from paper_pilot.services.deep_read import DeepReadingService
+from paper_pilot.services.deep_read import MAX_BATCH_CHARS, DeepReadingService
 from paper_pilot.services.graphing import GraphService
 from paper_pilot.services.libgen import LibgenService
 from paper_pilot.services.open_access import SHORT_DOCUMENT_CHARS, OpenAccessService
@@ -31,8 +32,8 @@ Paper Pilot finds, downloads and delivers the full text of research papers. An a
 
 Read a paper:
 1. search_literature(topic) finds it. open_access_only=False also lists paywalled work; sort_by="newest" gives recent work first.
-2. download_paper(doi=..., pdf_url=...) with every identifier the search result gave you (also arxiv_id, pmcid). It tries arXiv, PubMed Central, publisher and repository copies, then Unpaywall, and returns the first text batch.
-3. Call read_pdf_text with full_text.next_cursor until next_cursor is null. Only then has the paper been read. Skip no batch.
+2. download_paper(doi=..., pdf_url=...) with every identifier the search result gave you (also arxiv_id, pmcid; a title alone works for a reference you want to follow). It tries arXiv, PubMed Central, publisher and repository copies, then Unpaywall, and returns the first text batch.
+3. Make every read_pdf_text call listed in full_text.remaining_batches (together, if your client runs tools in parallel), or follow next_cursor until it is null. Only then has the paper been read. Skip no batch.
 4. render_pdf_pages for figures, tables, equations and pages reported without text.
 deep_read_topic does steps 1-2 for several papers at once; each paper still needs step 3.
 
@@ -84,9 +85,10 @@ validation. Buffer-solution accuracy is not automatically soil accuracy. This is
 hardcoded sensor recommendation or a requirement to add connectivity.
 """.strip()
 
-# Character budgets that keep a default call near 7k tokens.
-ABSTRACT_BUDGET_CHARS = 12000
-DEEP_READ_TEXT_BUDGET_CHARS = 8000
+# Character budgets that keep a default call near 7k tokens. Served JSON measured about
+# 3.8 characters per token (o200k_base), so 30,000 characters is roughly 7,900 tokens.
+RESULTS_BUDGET_CHARS = 26000
+DEEP_READ_TEXT_BUDGET_CHARS = 6000
 
 mcp = FastMCP("Paper Pilot", instructions=INSTRUCTIONS)
 
@@ -97,10 +99,17 @@ def research_decision(question: str) -> str:
     return f"{RESEARCH_WORKFLOW}\n\nDecision to research: {question}"
 
 
-def _brief_papers(papers: list[PaperRecord], budget_chars: int = ABSTRACT_BUDGET_CHARS) -> list[dict]:
-    """Compact records whose abstracts share one budget, so a long result list is not truncated."""
-    per_abstract = max(budget_chars // max(len(papers), 1), 0)
-    return [paper.brief(max_abstract_chars=per_abstract) for paper in papers]
+def _brief_papers(papers: list[PaperRecord], budget_chars: int = RESULTS_BUDGET_CHARS) -> list[dict]:
+    """Compact records that fit one budget as served: abstracts get what the metadata leaves over."""
+    if not papers:
+        return []
+    # Measured the way the client receives the list: indented and nested in the response.
+    metadata = len(json.dumps({"results": [paper.brief(0) for paper in papers]}, indent=2, ensure_ascii=False))
+    if metadata > budget_chars:  # so many results that only a line per paper fits
+        return _paper_lines(papers)
+    per_abstract = (budget_chars - metadata) // len(papers) - 45  # the abstract line's key, indent and cut marker
+    # A fragment of an abstract screens nothing; below this the list is titles only.
+    return [paper.brief(max_abstract_chars=per_abstract if per_abstract >= 120 else 0) for paper in papers]
 
 
 def _paper_lines(papers: list[PaperRecord]) -> list[dict]:
@@ -292,6 +301,7 @@ def healthcheck() -> dict:
         "unpaywall_enabled": settings.unpaywall_enabled,
         "unpaywall_role": "pdf_fallback",
         "semantic_scholar_api_key_configured": bool(settings.semantic_scholar_api_key),
+        "openalex_api_key_configured": bool(settings.openalex_api_key),
         "zotero": zotero_status,
         "proxy_configured": settings.proxy_configured,
         "ssl_cert_file_configured": bool(settings.ssl_cert_file),
@@ -311,7 +321,7 @@ def healthcheck() -> dict:
 @mcp.tool()
 async def search_literature(
     topic: str,
-    limit_per_source: int = 5,
+    limit_per_source: int = 4,
     from_year: int | None = None,
     to_year: int | None = None,
     open_access_only: bool = True,
@@ -326,7 +336,8 @@ async def search_literature(
     open_access_only=False also lists paywalled work. sort_by="newest" orders each source by date
     (year/month precision for some; arXiv uses first submission). For more results pass a source's
     source_status[].next_request arguments back unchanged (a cursor needs one source, not "all")
-    instead of raising limit_per_source, which makes the response too large for the client.
+    instead of raising limit_per_source: the results share one size budget, so more results per
+    call means shorter abstracts, and beyond about 40 results one line per paper.
     These are provider pages, not an exhaustive or globally ordered list. Errors appear in warnings.
     """
     bundle = await get_academic_service().search_literature(
@@ -424,6 +435,13 @@ async def graph_topic(
     }
 
 
+def _first_batch(pdf_path: str | Path, max_chars: int = MAX_BATCH_CHARS) -> dict:
+    """The opening text batch of a paper plus the list of every batch still to read."""
+    result = get_deep_read_service().read_text(pdf_path, max_chars=max_chars, plan=True)
+    result["doc_id"] = register_pdf(result["pdf_path"])
+    return result
+
+
 def _short_document_warning(page_count: int, text_chars: int) -> str | None:
     if text_chars == 0:
         return ("This PDF has no text layer (probably a scan). read_pdf_text cannot read it; "
@@ -445,28 +463,29 @@ async def download_paper(
 ) -> dict:
     """Download a paper's full text and start reading it. Give every identifier you have.
 
-    Tries, in order: arXiv, PubMed Central open data, the given and known PDF links, Unpaywall
-    locations for the DOI, then PubMed Central looked up by DOI. A doi.org link, an arXiv abs page
-    or a PMC article page also works as pdf_url. Pass only doi to get a different copy when a
-    downloaded PDF turned out to be a cover page or abstract.
+    Tries, in order: arXiv, PubMed Central open data, the given and known PDF links, the
+    publisher's own PDF address, Unpaywall locations for the DOI, then PubMed Central looked up by
+    DOI. A doi.org link, an arXiv abs page or a PMC article page also works as pdf_url. With only a
+    title (a reference you want to follow) the exact title is looked up first. Pass only doi to get
+    a different copy when a downloaded PDF turned out to be a cover page or abstract.
 
-    Returns pdf_path and full_text, the first text batch. The paper is read only after you have
-    called read_pdf_text with full_text.next_cursor until next_cursor is null. warnings flag a short
-    or text-less file; paper.downloaded_from says which copy was used. If every route fails the
-    error lists why: report the paper as not read rather than relying on its abstract.
+    Returns full_text, the first text batch, and full_text.remaining_batches, the arguments of
+    every read_pdf_text call that is still needed: make all of them (together, if your client runs
+    tools in parallel). Only then has the paper been read. text_path holds the same text as one
+    file if you would rather use your own file tools; pdf_path is the PDF. warnings flag a short or
+    text-less file; paper.downloaded_from says which copy was used. If every route fails the error
+    lists why: report the paper as not read rather than relying on its abstract.
     """
-    document = await get_open_access_service().download_paper(
-        pdf_url, title or doi or arxiv_id or pmcid or "paper", doi, arxiv_id, pmcid,
-    )
+    document = await get_open_access_service().download_paper(pdf_url, title, doi, arxiv_id, pmcid)
     warnings = list(document.paper.raw.get("access_warnings", []))
     if note := _short_document_warning(document.page_count, document.text_chars):
         warnings.append(note)
     return {
         **document.summary(),
-        "doc_id": register_pdf(document.path),
+        "text_path": str(get_deep_read_service().extract_document(document).text_path),
         "supplements": (document.paper.raw.get("pdf_download") or {}).get("supplements") or [],
         "warnings": warnings,
-        "full_text": read_pdf_text(str(document.path)),
+        "full_text": _first_batch(document.path),
     }
 
 
@@ -491,7 +510,7 @@ def extract_local_pdf_text(
         chunk_size_chars=chunk_size_chars,
         chunk_overlap_chars=chunk_overlap_chars,
     )
-    return {**artifact.to_dict(top_chunks=top_chunks), "full_text": read_pdf_text(str(artifact.pdf_path))}
+    return {**artifact.to_dict(top_chunks=top_chunks), "full_text": _first_batch(artifact.pdf_path)}
 
 
 @mcp.tool()
@@ -558,12 +577,13 @@ def read_pdf_text(
     pdf_path: str,
     start_page: int = 1,
     start_char: int = 0,
-    max_chars: int = 20000,
+    max_chars: int = MAX_BATCH_CHARS,
 ) -> dict:
     """Read the entire PDF in order as plain text over MCP; no file access or PDF support needed.
 
     Start at page 1, char 0. Pass next_cursor's start_page/start_char back with the same pdf_path
-    until next_cursor is null. Each batch includes at most max_chars (1..20000) text characters and
+    until next_cursor is null, or make the calls listed in a first batch's remaining_batches.
+    Each batch includes at most max_chars (1..20000) text characters and
     20 page segments; a long page resumes at the exact character, without omission or summarization.
     Batches stay under the output limit of Codex and Claude Code, so nothing is cut by the client.
     end_of_document is a cursor boundary, not proof the agent read previous pages. Accumulate warnings.
@@ -771,7 +791,7 @@ async def research_topic(
         "report_path": str(report_path),
         "graph_path": graph_path,
         "warnings": all_warnings,
-        "top_papers": _brief_papers(top_papers, ABSTRACT_BUDGET_CHARS // 2),
+        "top_papers": _brief_papers(top_papers, RESULTS_BUDGET_CHARS // 2),
         "related_papers": _paper_lines(related_papers),
         "downloads": [document.summary() for document in downloads],
         "scihub_downloads": [document.summary() for document in scihub_downloads],
@@ -816,7 +836,7 @@ async def deep_read_topic(
     """Search, download several papers, and start reading each one.
 
     deep_reads[*].full_text is only the opening of each paper (the batches share one response).
-    Continue every full_text.next_cursor with read_pdf_text until null before any synthesis;
+    Make every read_pdf_text call listed in its remaining_batches before any synthesis;
     top_chunks are short pointers to relevant pages and the report at report_path holds excerpts.
     Papers in top_papers that are not in deep_reads were not downloaded: say so, or try
     download_paper on them individually. Keep download_top_n at 4 or fewer per call; a larger
@@ -925,7 +945,7 @@ async def deep_read_topic(
         "or fetch its resource_link. Use embed_base64=True for clients that support embedded PDFs. "
         "Receiving the PDF alone is not evidence of reading it.",
         "For figures/tables, call render_pdf_pages on a pdf_path; for text comparison use text_path and chunk_manifest_path.",
-        "Each deep_reads[*].full_text is only the opening of that paper. Follow its next_cursor with read_pdf_text for that pdf_path until null. top_chunks and the report are ranked excerpts, not a full-paper read.",
+        "Each deep_reads[*].full_text is only the opening of that paper. Call read_pdf_text once per entry in its remaining_batches (that pdf_path, arguments unchanged; together if your client runs tools in parallel). top_chunks and the report are ranked excerpts, not a full-paper read.",
         "Report pages_without_text and extraction_failures. Never infer methods/results from the abstract alone, or claim complete reading when text is missing.",
     ]
     result = {
@@ -944,9 +964,8 @@ async def deep_read_topic(
                 # output limit; the cursor resumes at the exact character, so nothing is skipped.
                 "full_text": {
                     key: value
-                    for key, value in read_pdf_text(
-                        str(artifact.pdf_path),
-                        max_chars=max(DEEP_READ_TEXT_BUDGET_CHARS // len(artifacts), 500),
+                    for key, value in _first_batch(
+                        artifact.pdf_path, max(DEEP_READ_TEXT_BUDGET_CHARS // len(artifacts), 500),
                     ).items()
                     if key not in {"agent_notes", "pdf_path", "doc_id", "page_count"}  # stated once above
                 },

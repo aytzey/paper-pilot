@@ -35,6 +35,7 @@ class Settings:
     allow_external_pdf_paths: bool = True
     pdf_embed_max_mb: float = 5.0
     pdf_embed_max_pages: int = 60
+    openalex_api_key: str | None = None
 
     @property
     def effective_zotero_library_id(self) -> str | None:
@@ -109,9 +110,21 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _default_data_dir() -> str:
+    # The server starts inside whatever project the agent is working on. A ./data folder there
+    # litters the repository, collides with the project's own data folder and splits the cache
+    # per project, so the default is one folder per user.
+    return str(Path.home() / ".paper-pilot")
+
+
 def load_settings() -> Settings:
     load_dotenv()
-    data_dir = Path(os.getenv("PAPER_PILOT_DATA_DIR", os.getenv("DEEP_RESEARCH_DATA_DIR", os.getenv("ZOTERO_RESEARCHER_DATA_DIR", "./data")))).expanduser().resolve()
+    data_dir = Path(
+        os.getenv("PAPER_PILOT_DATA_DIR")
+        or os.getenv("DEEP_RESEARCH_DATA_DIR")
+        or os.getenv("ZOTERO_RESEARCHER_DATA_DIR")
+        or _default_data_dir()
+    ).expanduser().resolve()
     data_dir.mkdir(parents=True, exist_ok=True)
     (data_dir / "downloads").mkdir(parents=True, exist_ok=True)
     (data_dir / "reports").mkdir(parents=True, exist_ok=True)
@@ -166,4 +179,5 @@ def load_settings() -> Settings:
         allow_external_pdf_paths=allow_external_pdf_paths,
         pdf_embed_max_mb=_env_float("PDF_EMBED_MAX_MB", 5.0),
         pdf_embed_max_pages=_env_int("PDF_EMBED_MAX_PAGES", 60),
+        openalex_api_key=os.getenv("OPENALEX_API_KEY") or None,
     )
