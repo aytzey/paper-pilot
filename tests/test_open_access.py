@@ -12,7 +12,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
 from paper_pilot.config import Settings
 from paper_pilot.models import PaperRecord, combine_papers
-from paper_pilot.services.academic import AcademicSearchService
+from paper_pilot.services.academic import AcademicSearchService, SearchBundle
 from paper_pilot.services.open_access import PMC_OPEN_DATA, OpenAccessService
 
 _PUBLIC_PDF = "https://93.184.216.34/paper.pdf"
@@ -353,7 +353,7 @@ def test_arxiv_copy_is_tried_before_a_publisher_link(tmp_path, monkeypatch):
     assert document.paper.raw["pdf_download"]["resolver"] == "arxiv"
 
 
-@pytest.mark.parametrize("status,attempts", [(403, 1), (404, 1), (503, 3)])
+@pytest.mark.parametrize("status,attempts", [(403, 1), (404, 1), (503, 2)])
 def test_only_transient_failures_are_retried(tmp_path, monkeypatch, status, attempts):
     seen = []
     _routed_client(monkeypatch, {_PUBLIC_PDF: httpx.Response(status)}, seen)
@@ -373,3 +373,48 @@ def test_merging_sources_keeps_every_pdf_link_as_a_download_candidate(tmp_path, 
     _routed_client(monkeypatch, {alive: httpx.Response(200, content=data)}, seen)
     documents, _ = asyncio.run(OpenAccessService(_settings(tmp_path)).download_best_papers("topic", [merged]))
     assert seen == [dead, alive] and documents[0].path.read_bytes() == data
+
+
+def test_title_alone_downloads_the_exact_match_and_refuses_a_near_miss(tmp_path, monkeypatch):
+    data, seen = _pdf_bytes(), []
+    _routed_client(monkeypatch, {"https://93.184.216.34/exact.pdf": httpx.Response(200, content=data)}, seen)
+    found = [
+        PaperRecord(source="a", source_id="1", title="Attention Is All You Need Again", doi="10.1/near",
+                    pdf_url="https://93.184.216.34/near.pdf", citation_count=99999),
+        PaperRecord(source="b", source_id="2", title="Attention is all you need.", doi="10.1/exact",
+                    pdf_url="https://93.184.216.34/exact.pdf", raw={"unpaywall": {"status": "ok"}}),
+    ]
+
+    async def search(self, topic, **kwargs):
+        return SearchBundle(found, [], [])
+
+    monkeypatch.setattr(AcademicSearchService, "search_literature", search)
+    service = OpenAccessService(_settings(tmp_path))
+    document = asyncio.run(service.download_paper(title="Attention Is All You Need"))
+    assert document.paper.doi == "10.1/exact" and seen == ["https://93.184.216.34/exact.pdf"]
+    with pytest.raises(ValueError, match="No paper titled exactly.*10.1/near"):
+        asyncio.run(service.download_paper(title="Attention Is All"))
+
+
+def test_gold_oa_article_listed_with_only_a_landing_page_is_fetched_from_the_publisher(tmp_path, monkeypatch):
+    data, seen = _pdf_bytes(), []
+    _routed_client(monkeypatch, {"https://www.frontiersin.org/articles/10.3389/fenrg.2023.1118654/pdf": httpx.Response(200, content=data)}, seen)
+    paper = PaperRecord(source="doaj", source_id="1", title="Paper", doi="10.3389/fenrg.2023.1118654",
+                        pdf_url="https://93.184.216.34/repository-page.pdf", raw={"unpaywall": {"status": "ok"}})
+    documents, _ = asyncio.run(OpenAccessService(_settings(tmp_path)).download_best_papers("topic", [paper]))
+    assert documents and paper.raw["pdf_download"]["resolver"] == "publisher"
+    assert seen == ["https://93.184.216.34/repository-page.pdf", "https://www.frontiersin.org/articles/10.3389/fenrg.2023.1118654/pdf"]
+
+
+def test_a_host_that_does_not_answer_is_tried_once(tmp_path, monkeypatch):
+    seen = []
+
+    def handler(request):
+        seen.append(str(request.url))
+        raise httpx.ConnectTimeout("no answer")
+
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs))
+    with pytest.raises(ValueError, match="ConnectTimeout|no answer"):
+        asyncio.run(OpenAccessService(_settings(tmp_path)).download_paper(_PUBLIC_PDF))
+    assert seen == [_PUBLIC_PDF]

@@ -86,25 +86,51 @@ returns in about a second instead of 7 to 37, because a 403 or a 404 is no longe
 
 The transport check says what the server sends. To see what an agent does with it, a Claude Code
 session and a Codex CLI session (codex-cli 0.169.0) each got this prompt on 15 November 2026, with
-no hint about how to use the tools:
+no hint about how to use the tools and with their own file tools available:
 
 > Use the paper-pilot tools to get the paper with DOI 10.3390/s110100573 and answer from the paper
 > itself, not from memory or the abstract: (1) After calibration, what range of mean absolute errors
 > does the paper report? (2) What does the paper suggest installing to deal with blocking by residues
-> and weed roots? (3) What is the number, and who are the authors, of the last entry in the reference list?
+> and weed roots? (3) What is the number, and who are the authors, of the last entry in the reference
+> list? (4) What regression equation is printed inside the plot of Figure 7?
 
-The answers are on PDF pages 22 and 26 of 26, and the publisher's own PDF link is closed to scripts.
-Both agents called `download_paper` once and `read_pdf_text` three times, reached `next_cursor: null`,
-and answered all three questions correctly with page numbers: 0.28 to 0.40 pH units, a video camera,
-and reference 60 by Schirrmann and Domsch. Both named the PubMed Central copy they had read. Codex
-also rendered pages 22 and 26 to check them visually.
+The first three answers are on PDF pages 22 and 26 of 26. The fourth exists only inside a figure:
+the numbers appear nowhere in the extracted text. The publisher's own PDF link is closed to scripts.
+
+Both agents called `download_paper` once, made the three `read_pdf_text` calls listed in
+`remaining_batches` (Claude Code sent them in one step), rendered page 16 with `render_pdf_pages`,
+and answered all four questions correctly with page numbers: 0.28 to 0.40 pH units, a video camera,
+reference 60 by Schirrmann and Domsch, and y = 1.78 + 0.76 x. Both named the PubMed Central copy
+they had read.
 
 This is one paper and one run per client. It shows the reading path works end to end in both
 clients; it is not a benchmark.
 
+## Should the agent read the file itself?
+
+Coding agents can open files, so the server could download the paper, return a path, and leave the
+reading to the agent. The same four questions were run against two builds: one that sends the text
+over MCP, and one whose `download_paper` returns only `pdf_path` and `text_path` and tells the agent
+to read the file with its own tools.
+
+| Client | Server sends the text | Server returns paths only |
+|---|---|---|
+| Claude Code | 4 of 4 correct. One download, three text calls, one page render. 43 s | 4 of 4 correct. Read the text file natively in two parallel calls. 30 s |
+| Codex | 4 of 4 correct. One download, three text calls, one page render | 4 of 4 correct, but it did not open the file: it called `read_pdf_text` four times, one more call than before |
+
+Neither agent opened the PDF itself in any run; both read extracted text and looked at a rendered
+page only for the figure. Claude Code was faster with the file because it read two ranges at once,
+not because the file was better. Codex paid for the detour.
+
+So the server keeps sending the text, which works in every client and needs no file access, and
+takes the one real advantage of files: the first response lists every remaining batch, so the rest
+of the paper can be requested in a single step. With that, the Claude Code run took 37 seconds and
+Codex needed no extra call. `text_path` and `pdf_path` are returned as well for agents that prefer
+their own tools. One run per cell; treat the timings as indicative.
+
 ## What this proves
 
 Paper Pilot can deliver complete extracted text and original PDF bytes through MCP, and a Claude Code
-and a Codex session each read a 26-page paper to the end with it. The checks do not prove model
-comprehension in general, correct figure interpretation, or exhaustive literature search.
+and a Codex session each read a 26-page paper to the end with it and found a number that exists only
+inside a figure. The checks do not prove model comprehension in general or exhaustive literature search.
 Scans without readable text remain explicit gaps.

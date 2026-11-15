@@ -1,5 +1,6 @@
 import asyncio
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import httpx
@@ -220,3 +221,30 @@ def test_provider_result_caps_are_visible_not_exhaustion(tmp_path, monkeypatch):
         status = bundle.source_status[0]
         assert status["status"] == "limited" and status["next_request"] is None
         assert status["notes"] and len(bundle.results) == 1
+
+
+def test_crossref_relevance_search_pages_by_offset_because_its_cursor_loses_the_ranking(tmp_path):
+    service = service_at(tmp_path)
+    sent = []
+
+    async def get_json(client, url, params, namespace):
+        sent.append(params)
+        return {"message": {"total-results": 40, "items": [{"title": [f"Soil {n}"], "DOI": f"10.1/{n}"} for n in range(5)]}}
+
+    service._get_json = get_json
+    first = asyncio.run(service._search_crossref(None, "soil pH", 5, None, None))
+    second = asyncio.run(service._search_crossref(None, "soil pH", 5, None, None, cursor=first.next_cursor))
+    assert [params["offset"] for params in sent] == [0, 5] and second.next_cursor == "10"
+    assert all("cursor" not in params and "sort" not in params for params in sent)
+
+
+def test_api_keys_reach_only_their_own_service_and_rate_limits_say_what_to_do(tmp_path):
+    service = AcademicSearchService(replace(service_at(tmp_path).settings, semantic_scholar_api_key="s2-key", openalex_api_key="oa-key"))
+    assert "x-api-key" not in service._headers() and "Authorization" not in service._headers()
+    assert service._auth_headers("https://api.semanticscholar.org/graph/v1/paper/search") == {"x-api-key": "s2-key"}
+    assert service._auth_headers("https://api.openalex.org/works") == {"Authorization": "Bearer oa-key"}
+    assert service._auth_headers("https://api.crossref.org/works") == {}
+    keyless = service_at(tmp_path)
+    limited = httpx.HTTPStatusError("Client error '429 Too Many Requests'", request=None, response=None)
+    assert "OPENALEX_API_KEY" in keyless._rate_limit_hint("openalex", limited)
+    assert service._rate_limit_hint("openalex", limited) == ""

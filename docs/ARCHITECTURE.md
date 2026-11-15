@@ -26,8 +26,9 @@ Handles discovery and enrichment across:
 `SearchPage` retains each provider's continuation and coverage; `SearchBundle.source_status`
 supplies complete next/retry requests for the existing search tool. Semantic Scholar bulk responses
 are exposed in smaller groups through the existing API cache without dropping their remainder.
-Crossref newest-first queries use bounded offset paging because its cursor rejects publication-date
-sorting. Provider limits and date meanings remain visible. The model owns cross-call deduplication.
+Crossref queries use bounded offset paging in both orders: its deep-paging cursor rejects
+publication-date sorting and, with `cursor=*`, returns the first page without relevance ordering.
+API keys are sent only to the service they belong to, as headers. Provider limits and date meanings remain visible. The model owns cross-call deduplication.
 `PaperRecord` preserves date precision/provenance and conflicting dates from merged records.
 
 The server initialization instructions carry the reading protocol and a condensed research-to-decision
@@ -58,7 +59,9 @@ Performs:
 - full-text extraction with PyMuPDF
 - chunk generation for downstream retrieval
 - page rendering to PNG for chart and figure review
-- bounded sequential reading over MCP (`read_pdf_text`) with exact page/character continuations
+- bounded sequential reading over MCP (`read_pdf_text`) with exact page/character continuations;
+  one function plans a batch for both the reader and the `remaining_batches` list, so planned
+  batches meet exactly and can be fetched in parallel
 - explicit text-extraction gaps for PDFs without a readable text layer
 
 ### `services/zotero.py`
@@ -114,12 +117,12 @@ Shared network safety: an SSRF guard (`is_public_http_url`) that blocks loopback
 5. deep-read mode extracts full text, labels extraction gaps, and delivers the first sequential text batch
 6. the agent follows `read_pdf_text` continuation cursors until the end and inspects figures as images;
    reports and ranked chunks alone are not a full-paper read
-7. the report is written to `data/reports`
+7. the report is written to `reports/` in the data directory
 8. Zotero sync optionally persists the collection, items, attachment, and note
 
 ## Output Artifacts
 
-Generated files are written under `data/`:
+Generated files are written under `~/.paper-pilot/` (or `PAPER_PILOT_DATA_DIR`):
 
 - `downloads/` for PDFs
 - `reports/` for Markdown reports

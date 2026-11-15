@@ -37,14 +37,17 @@ Keep source failures, partial dates and unread papers visible. A related-paper r
 not a verified citation link. Zotero and graph export are optional.
 
 To read one paper, call `search_literature`, then `download_paper` with every identifier the result
-gave you, then `read_pdf_text` with `full_text.next_cursor` until it is null.
+gave you, then every `read_pdf_text` call listed in `full_text.remaining_batches` (send them together
+if the client runs tools in parallel; following `next_cursor` until it is null reads the same text).
+To follow a reference, `download_paper(title="...")` with its exact title is enough.
 
 For a quick reading pack, use tools in this order:
 
 1. `healthcheck`
 2. `research_topic` for broad discovery and report generation
 3. `deep_read_topic` when you want several papers downloaded and started at once
-   - `deep_reads[*].full_text` is only the opening of each paper. Follow each `next_cursor` with
+   - `deep_reads[*].full_text` is only the opening of each paper. Make the calls in its
+     `remaining_batches`, or follow each `next_cursor` with
      `read_pdf_text` on the same `pdf_path` until null, and read every batch.
    - `top_chunks`, abstracts, PDF paths and generated reports are previews, not proof of full reading.
      Disclose `pages_without_text` / extraction failures as coverage gaps.
@@ -62,13 +65,14 @@ Use `search_literature` and `find_similar_papers` when you want fine-grained con
 
 ## Important Output Locations
 
-The server writes artifacts under `data/`:
+The server writes artifacts under `~/.paper-pilot/` (override with `PAPER_PILOT_DATA_DIR`), never
+into the project the agent is working in:
 
-- `data/downloads/`: downloaded PDFs
-- `data/reports/`: Markdown reports
-- `data/deep_reads/`: extracted text and chunk manifests
-- `data/renders/`: rendered PNG pages
-- `data/cache/`: cached API responses
+- `downloads/`: downloaded PDFs, named by content so a paper is stored once
+- `reports/`: Markdown reports
+- `deep_reads/`: extracted text and chunk manifests
+- `renders/`: rendered PNG pages
+- `cache/`: cached API responses
 
 If a tool returns an absolute `pdf_path`, prefer using that file directly instead of guessing the location.
 
@@ -95,7 +99,8 @@ Search runs across 6 databases: Semantic Scholar, OpenAlex, arXiv, Crossref, Eur
 1. arXiv, when an arXiv ID is known (including `10.48550/arXiv.*` DOIs)
 2. The PubMed Central open-data store, when a PMC ID is known or appears in a link. The PDF links on
    `pmc.ncbi.nlm.nih.gov` and `europepmc.org` answer scripts with a bot challenge, so they are not used
-3. Every PDF link the search sources reported, including alternates kept when records were merged
+3. Every PDF link the search sources reported, including alternates kept when records were merged,
+   then the publisher's own PDF address where it follows from the DOI (Frontiers, Nature, Springer, BMC)
 4. Unpaywall `best_oa_location`, then its other `oa_locations`, looked up by DOI when needed
 5. PubMed Central looked up by DOI. Author manuscripts there are often text only; that text is
    laid out as a PDF and the response warns that page numbers are not the publisher's
@@ -108,8 +113,13 @@ route fails, the error lists the reasons: report the paper as unread and keep it
 screening only.
 
 Tool responses are sized for the client's output limit (about 10,000 tokens in Codex, 25,000 in
-Claude Code). Keep `limit_per_source` at 5 and `download_top_n` at 4 or fewer per call; page with
-`next_request` instead of asking for more at once.
+Claude Code). Keep `limit_per_source` and `download_top_n` at 4 or fewer per call; page with
+`next_request` instead of asking for more at once. A result list shares one size budget, so more
+results per call means shorter abstracts.
+
+OpenAlex and Semantic Scholar ration keyless requests; when one is skipped, `warnings` says so and
+names the free key to set (`OPENALEX_API_KEY`, `SEMANTIC_SCHOLAR_API_KEY`). Do not treat a search
+with a skipped source as complete.
 
 `Sci-Hub` is available as an opt-in fallback when `SCIHUB_ENABLED=true`. If used, its provenance should remain explicit.
 

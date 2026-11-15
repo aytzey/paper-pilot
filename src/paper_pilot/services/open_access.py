@@ -19,6 +19,7 @@ from paper_pilot.models import (
     PaperRecord,
     normalize_doi,
     normalize_pmcid,
+    normalize_title,
     slugify,
 )
 from paper_pilot.services.academic import AcademicSearchService
@@ -29,14 +30,26 @@ from paper_pilot.services.net import download_capped, is_public_http_url
 PMC_OPEN_DATA = "https://pmc-oa-opendata.s3.amazonaws.com"
 _PMC_URL_RE = re.compile(r"(?:ncbi\.nlm\.nih\.gov|europepmc\.org)/.*PMC\d+", re.IGNORECASE)
 _RETRY_STATUS = {408, 425, 429, 500, 502, 503, 504}
+# Give a silent host ten seconds to answer, a large PDF a minute to arrive.
+_TIMEOUT = httpx.Timeout(60.0, connect=10.0)
+# Open-access publishers whose PDF address follows from the DOI. Indexes often list only the
+# landing page for them. A paywalled article answers with HTML and the next route takes over.
+_PUBLISHER_PDF = {
+    "10.3389/": "https://www.frontiersin.org/articles/{doi}/pdf",
+    "10.1038/": "https://www.nature.com/articles/{suffix}.pdf",
+    "10.1007/": "https://link.springer.com/content/pdf/{doi}.pdf",
+    "10.1186/": "https://link.springer.com/content/pdf/{doi}.pdf",
+}
 # Below this much text a "paper" is usually an abstract page, cover sheet, erratum or poster.
 SHORT_DOCUMENT_CHARS = 6000
 
 
 def _is_transient(exc: Exception) -> bool:
+    """Worth one more try: a busy server or a transfer that broke off. A host that does not
+    answer at all is not; retrying it is what made one dead repository cost three minutes."""
     if isinstance(exc, httpx.HTTPStatusError):
         return exc.response.status_code in _RETRY_STATUS
-    return isinstance(exc, httpx.TransportError)
+    return isinstance(exc, (httpx.ReadError, httpx.ReadTimeout, httpx.RemoteProtocolError))
 
 
 def _text_to_pdf(text: str) -> bytes:
@@ -64,7 +77,7 @@ class OpenAccessService:
             if paper.pdf_candidates() or paper.doi or paper.arxiv_id() or paper.raw.get("pmcid")
         ]
         async with httpx.AsyncClient(
-            timeout=60.0,
+            timeout=_TIMEOUT,
             follow_redirects=True,
             trust_env=True,
             verify=self.settings.ssl_verify,
@@ -84,52 +97,76 @@ class OpenAccessService:
     async def download_paper(
         self,
         pdf_url: str | None = None,
-        title: str = "paper",
+        title: str | None = None,
         doi: str | None = None,
         arxiv_id: str | None = None,
         pmcid: str | None = None,
     ) -> DownloadedDocument:
-        """Download one paper from whatever identifiers the caller has."""
+        """Download one paper from whatever identifiers the caller has; a title alone is looked up."""
         # People paste what they have: a doi.org link is a DOI, not a PDF.
         if pdf_url and not doi and re.match(r"https?://(?:dx\.)?doi\.org/", pdf_url, re.IGNORECASE):
             doi, pdf_url = pdf_url, None
         doi = normalize_doi(doi)
         if doi and not re.fullmatch(r"10\.\d{4,9}/\S+", doi):
             raise ValueError("Invalid DOI.")
-        if not (pdf_url or doi or arxiv_id or pmcid):
-            raise ValueError("Provide a DOI, an arXiv id, a PMC id or a PDF URL.")
-        paper = PaperRecord(
-            source="remote_pdf" if pdf_url else "doi" if doi else "identifier",
-            source_id=pdf_url or doi or arxiv_id or pmcid,
-            title=title,
-            doi=doi,
-            url=pdf_url,
-            pdf_url=pdf_url,
-            is_open_access=bool(pdf_url),
-            raw={key: value for key, value in {"arxiv_id": arxiv_id, "pmcid": normalize_pmcid(pmcid)}.items() if value},
-        )
-        documents, warnings = await self.download_best_papers(title, [paper], 1)
+        if pdf_url or doi or arxiv_id or pmcid:
+            name = title or doi or arxiv_id or pmcid or "paper"
+            papers = [PaperRecord(
+                source="remote_pdf" if pdf_url else "doi" if doi else "identifier",
+                source_id=pdf_url or doi or arxiv_id or pmcid,
+                title=name,
+                doi=doi,
+                url=pdf_url,
+                pdf_url=pdf_url,
+                is_open_access=bool(pdf_url),
+                raw={key: value for key, value in {"arxiv_id": arxiv_id, "pmcid": normalize_pmcid(pmcid)}.items() if value},
+            )]
+        elif title and title.strip():
+            name, papers = title, await self._find_by_title(title)
+        else:
+            raise ValueError("Provide a DOI, an arXiv id, a PMC id, a PDF URL or the paper's exact title.")
+        documents, warnings = await self.download_best_papers(name, papers, 1)
         if not documents:
             raise ValueError("; ".join(warnings) or "No downloadable PDF found.")
-        paper.raw = {**paper.raw, "access_warnings": warnings}
-        return documents[0]
+        document = documents[0]
+        document.paper.raw = {**document.paper.raw, "access_warnings": warnings}
+        return document
+
+    async def _find_by_title(self, title: str) -> list[PaperRecord]:
+        """Search records with exactly this title, most reachable first.
+
+        A near miss is refused: downloading a similar paper would have the agent read, and
+        cite, the wrong one. A preprint and its journal version both match and are both tried.
+        """
+        bundle = await AcademicSearchService(self.settings).search_literature(
+            title, limit_per_source=3, open_access_only=False,
+        )
+        wanted = normalize_title(title)
+        matches = [paper for paper in bundle.results if normalize_title(paper.title) == wanted]
+        if not matches:
+            closest = "; ".join(f"{paper.title} ({paper.year}, doi: {paper.doi})" for paper in bundle.results[:5])
+            raise ValueError(
+                f"No paper titled exactly {title!r} was found. Closest results: {closest or 'none'}. "
+                "Call download_paper again with the DOI or URL of the one you mean."
+            )
+        return sorted(matches, key=lambda paper: (not paper.pdf_candidates(), -paper.rank_score()))
 
     async def _get(self, client: httpx.AsyncClient, url: str, max_bytes: int | None = None) -> bytes:
         """Fetch a public URL, retrying transient failures only.
 
         A 403, a 404 or an HTML page does not turn into a PDF on the next attempt, and
         waiting on them is what used to make one unreachable paper cost twenty seconds.
+        A transient failure gets one retry.
         """
         if not is_public_http_url(url):
             raise ValueError(f"Refusing to fetch non-public PDF URL: {url}")
-        for attempt in range(3):
-            try:
-                return await download_capped(client, url, max_bytes or self.settings.max_download_bytes)
-            except Exception as exc:
-                if attempt == 2 or not _is_transient(exc):
-                    raise
-                await asyncio.sleep(1.5 * (attempt + 1))
-        raise AssertionError("unreachable")
+        try:
+            return await download_capped(client, url, max_bytes or self.settings.max_download_bytes)
+        except Exception as exc:
+            if not _is_transient(exc):
+                raise
+        await asyncio.sleep(1.5)
+        return await download_capped(client, url, max_bytes or self.settings.max_download_bytes)
 
     async def _fetch_pdf(self, client: httpx.AsyncClient, url: str) -> bytes:
         content = await self._get(client, url)
@@ -183,7 +220,10 @@ class OpenAccessService:
         async def try_urls() -> tuple[bytes, dict] | None:
             unpaywall = paper.raw.get("unpaywall") or {}
             locations = [unpaywall.get("best_oa_location") or {}, *(unpaywall.get("oa_locations") or [])]
-            urls = [*(location.get("url_for_pdf") for location in locations), *paper.pdf_candidates()]
+            doi = normalize_doi(paper.doi) or ""
+            publisher = next((pattern.format(doi=doi, suffix=doi.partition("/")[2])
+                              for prefix, pattern in _PUBLISHER_PDF.items() if doi.startswith(prefix)), None)
+            urls = [*(location.get("url_for_pdf") for location in locations), *paper.pdf_candidates(), publisher]
             # PMC-hosted links are bot-walled; they only run after every other location.
             for url in sorted(dict.fromkeys(url for url in urls if url), key=lambda url: bool(_PMC_URL_RE.search(url))):
                 if url in tried:
@@ -192,7 +232,7 @@ class OpenAccessService:
                 content = await attempt(url, lambda url=url: self._fetch_pdf(client, url))
                 if content:
                     location = next((item for item in locations if item.get("url_for_pdf") == url), None)
-                    resolver = "unpaywall" if location else paper.source
+                    resolver = "unpaywall" if location else "publisher" if url == publisher else paper.source
                     if not location and (paper.raw.get("openalex_doi_lookup") or {}).get("pdf_url") == url:
                         resolver = "openalex"
                     return content, {"url": url, "resolver": resolver, "location": location}

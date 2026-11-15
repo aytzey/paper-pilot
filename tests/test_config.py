@@ -16,6 +16,20 @@ def test_malformed_numeric_env_falls_back_to_default(tmp_path: Path, monkeypatch
     assert settings.max_download_bytes == 75 * 1024 * 1024
 
 
+def test_default_data_dir_is_per_user_not_inside_the_agents_project(tmp_path: Path, monkeypatch) -> None:
+    for name in ("PAPER_PILOT_DATA_DIR", "DEEP_RESEARCH_DATA_DIR", "ZOTERO_RESEARCHER_DATA_DIR"):
+        monkeypatch.delenv(name, raising=False)
+    project, home = tmp_path / "project", tmp_path / "home"
+    project.mkdir()
+    monkeypatch.chdir(project)
+    monkeypatch.setattr(Path, "home", lambda: home)
+
+    settings = load_settings()
+
+    assert settings.data_dir == (home / ".paper-pilot").resolve()
+    assert not (project / "data").exists()
+
+
 def test_boolean_and_size_env_parsing(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("PAPER_PILOT_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("INSECURE_SHADOW_TLS", "true")

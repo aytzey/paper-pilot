@@ -49,3 +49,12 @@ def test_among_relevant_papers_citations_break_ties() -> None:
     cited = _paper(title, abstract="graph neural networks", cites=500, year=2022)
     fresh = _paper(title, abstract="graph neural networks", cites=2, year=2022)
     assert cited.quality_score(query) > fresh.quality_score(query)
+
+
+def test_a_paper_whose_title_is_the_query_outranks_cited_papers_that_only_contain_it() -> None:
+    wanted = PaperRecord(source="arxiv", source_id="1", title="Attention Is All You Need", year=2017)
+    spinoff = PaperRecord(source="europe_pmc", source_id="2", year=2023, citation_count=400, is_open_access=True,
+                          title="Attention is all you need: utilizing attention in AI-enabled drug discovery",
+                          abstract="Attention is all you need. " * 40)
+    query = "Attention Is All You Need"
+    assert wanted.quality_score(query) > spinoff.quality_score(query)

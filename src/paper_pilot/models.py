@@ -153,6 +153,10 @@ class PaperRecord:
         normalized_query = normalize_title(query)
         if normalized_query and normalized_query in normalize_title(self.title):
             score += 3.0  # exact topic phrase in the title
+            if normalized_query == normalize_title(self.title):
+                # The query is this paper's title, so it is the paper being looked for. The bonus
+                # is large enough that no citation count on a spin-off title can outrank it.
+                score += 25.0
         return score
 
     def quality_score(self, query: str | None = None) -> float:
@@ -173,7 +177,7 @@ class PaperRecord:
         abstract = (self.abstract or "") if max_abstract_chars > 0 else ""
         if len(abstract) > max_abstract_chars:
             abstract = abstract[:max_abstract_chars].rstrip() + "… [abstract truncated]"
-        authors = self.authors[:5] + ([f"+{len(self.authors) - 5} more"] if len(self.authors) > 5 else [])
+        authors = self.authors[:3] + ([f"+{len(self.authors) - 3} more"] if len(self.authors) > 3 else [])
         download = self.raw.get("pdf_download")
         if download:  # which copy was read: source, format, and the licence/version Unpaywall reports
             download = {**{key: (download.get("location") or {}).get(key) for key in ("host_type", "license", "version")},
@@ -190,11 +194,10 @@ class PaperRecord:
             "doi": self.doi,
             "arxiv_id": self.arxiv_id(),
             "pmcid": self.raw.get("pmcid"),
-            "url": self.url,
+            "url": None if self.doi else self.url,  # a DOI already is the link
             "pdf_url": self.pdf_url,
             "is_open_access": self.is_open_access,
             "citation_count": self.citation_count,
-            "sources": self.raw.get("merged_sources") or [self.source],
             "abstract": abstract,
             "downloaded_from": {key: value for key, value in download.items() if value} if download else None,
         }

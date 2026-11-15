@@ -31,7 +31,7 @@ Restart your client, then ask:
 
 > Use Paper Pilot to find “Attention Is All You Need”. Read the full paper, inspect the architecture figure, and explain the method and its limitations with PDF page citations.
 
-No account, API key, email setup, or Zotero installation is required by Paper Pilot. Your AI client's own access and usage costs still apply. The first launch installs Python dependencies; academic APIs can rate-limit requests.
+No account, API key, email setup, or Zotero installation is required by Paper Pilot. If you search a lot, add the two free keys in [Search limits](#search-limits). Your AI client's own access and usage costs still apply. The first launch installs Python dependencies; academic APIs can rate-limit requests.
 
 **Claude Desktop or Cursor:** use the [copyable JSON configuration](#mcp-client-setup).
 
@@ -41,7 +41,7 @@ No account, API key, email setup, or Zotero installation is required by Paper Pi
 uvx --from git+https://github.com/aytzey/paper-pilot paper-pilot demo "retrieval augmented generation"
 ```
 
-The CLI downloads accessible papers, saves a reading pack, and opens a citation graph. It does not run an LLM or write a finished research conclusion. Results go into `./data/` by default. These commands install from GitHub; a PyPI release is not required.
+The CLI downloads accessible papers, saves a reading pack, and opens a citation graph. It does not run an LLM or write a finished research conclusion. Results go into `~/.paper-pilot/` by default. These commands install from GitHub; a PyPI release is not required.
 
 ## See what reaches your agent
 
@@ -54,11 +54,13 @@ In a recorded stdio MCP check, **Attention Is All You Need** was delivered as 15
 | A multidisciplinary example | Two soil-pH papers: 37 pages, 96,163 characters, six responses |
 | A paper whose publisher blocks scripts | Read in full from the PubMed Central open-data copy |
 | A paywalled paper with an author manuscript in PubMed Central | Read in full; the response says which copy it is |
-| Response size | Default search, download and reading responses stayed under 30,000 characters |
+| Response size | Default search, download and reading responses measured 4,300 to 7,400 tokens |
 
 The last row matters more than it looks. Codex truncates tool output at roughly 10,000 tokens and Claude Code at 25,000. A response above that is cut by the client, and the agent is left with an abstract and the first pages without knowing it. Every default response is sized to arrive whole.
 
-Read the [walkthrough and reproduction steps](examples/full-paper-walkthrough.md) or inspect the [verification data](examples/full-text-verification.json). The transport check verifies delivery, not model comprehension. Separately, one Claude Code session and one Codex CLI session were each asked three questions whose answers sit on pages 22 and 26 of a 26-page paper; both read to the end and answered correctly.
+Coding agents can open files themselves, so why does the server send the text? Because it was tested. Given only file paths, Claude Code read the extracted text file and was a little faster; Codex ignored the file and asked the server for the text anyway, one call later than it needed to. So the server sends the text, lists every remaining batch up front so the rest can be fetched in parallel, and also returns `text_path` and `pdf_path` for agents that prefer their own tools. The [walkthrough](examples/full-paper-walkthrough.md#should-the-agent-read-the-file-itself) has the runs.
+
+Read the [walkthrough and reproduction steps](examples/full-paper-walkthrough.md) or inspect the [verification data](examples/full-text-verification.json). The transport check verifies delivery, not model comprehension. Separately, one Claude Code session and one Codex CLI session were each asked four questions about a 26-page paper: three answered only on pages 22 and 26, one only inside a figure. Both read to the end, rendered the figure page, and answered all four correctly.
 
 ## Research a practical decision
 
@@ -80,6 +82,17 @@ Search covers **Semantic Scholar, OpenAlex, arXiv, Crossref, Europe PMC, and DOA
 
 Not every paper has an open copy. In a check of 60 search results across five topics, 40 could be read in full and 20 could not: paywalled articles and dead links. For those, the tool returns the reason, and the agent is told to report the paper as unread instead of leaning on its abstract.
 
+## Search limits
+
+Two of the six sources ration requests without a key. OpenAlex gives each network about 100 keyless searches a day, and Semantic Scholar's keyless pool is usually busy. When either runs out, search continues on the other sources and the response says which one was skipped and why. Both keys are free:
+
+```bash
+OPENALEX_API_KEY=...            # https://openalex.org/settings/api-key
+SEMANTIC_SCHOLAR_API_KEY=...    # https://www.semanticscholar.org/product/api
+```
+
+Set them as environment variables of the MCP server ([client setup](docs/CLIENTS.md#optional-settings)). Downloading and reading papers does not need them.
+
 ## How full-paper reading works
 
 ```mermaid
@@ -90,8 +103,8 @@ flowchart LR
     R --> A[Agent compares the evidence]
 ```
 
-- **Download:** `download_paper` takes a DOI, an arXiv ID, a PubMed Central ID or a PDF link, and returns the first batch of text with a cursor for the rest.
-- **Text:** `read_pdf_text` returns consecutive pages with continuation cursors, including pages longer than a single response. A batch holds up to 20,000 characters, so a typical paper takes two to four calls.
+- **Download:** `download_paper` takes a DOI, an arXiv ID, a PubMed Central ID, a PDF link, or just the exact title of a reference the agent wants to follow. It returns the first batch of text and the list of every batch still to read.
+- **Text:** `read_pdf_text` returns consecutive pages, including pages longer than a single response. A batch holds up to 20,000 characters, so a typical paper takes two to four calls, and the remaining ones can be sent together.
 - **Figures and tables:** `render_pdf_pages` returns page images for visual inspection.
 - **Original file:** `read_pdf_document` provides the PDF when your agent needs it and the client supports that delivery path.
 - **Evidence trail:** retain source, DOI, PDF page, access location, and extraction warnings.

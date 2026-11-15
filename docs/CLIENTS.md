@@ -132,9 +132,14 @@ If a client cannot consume PDF resources, use sequential text and supported page
 Basic research works without these settings. Add them only for a feature you use:
 
 - `UNPAYWALL_EMAIL` or `OPENALEX_EMAIL`: your contact email; otherwise Unpaywall uses `nomail@mail.com`.
-- `PAPER_PILOT_DATA_DIR`: a writable directory for downloads and reports. The default is `./data/`
-  under the server's working directory. If a desktop client starts in a read-only directory,
-  set an absolute path you own, such as `C:/Users/<you>/paper-pilot-data` or `~/paper-pilot-data`.
+- `OPENALEX_API_KEY` and `SEMANTIC_SCHOLAR_API_KEY`: free keys that lift the search limits of those two
+  sources. Without them OpenAlex allows about 100 searches a day per network and Semantic Scholar is
+  usually rate-limited; search then continues on the other sources and says which one was skipped.
+- `PAPER_PILOT_DATA_DIR`: where downloads, extracted text and reports go. The default is
+  `~/.paper-pilot`, one folder per user, so nothing is written into the project your agent is
+  working in and a paper downloaded once is reused everywhere. Set it to a folder inside your
+  workspace if your client only lets the agent open files there and you want it to read
+  `pdf_path` or `text_path` with its own file tools; text and page images sent over MCP need no file access.
 - `ZOTERO_LOCAL=true`: enable local Zotero. Run `healthcheck` before requesting writes;
   full attachment/collection writes need the bridge described in [AGENTS.md](../AGENTS.md#zotero-rules).
 

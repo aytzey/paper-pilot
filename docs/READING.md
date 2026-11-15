@@ -14,6 +14,10 @@ automatically. For one specific paper, call `download_paper` with its DOI, arXiv
 or PDF link, then `read_pdf_text` on the returned `pdf_path`.
 Continue with the same path and the returned `start_page` / `start_char`. Each response carries at most
 20,000 text characters; even an oversized page continues at the exact character.
+A first batch also carries `remaining_batches`: the arguments of every `read_pdf_text` call still
+needed, so the rest of the paper can be requested in one step instead of cursor by cursor.
+`text_path` is the same text as one file and `pdf_path` the PDF, for agents that would rather use
+their own file tools.
 
 Responses are sized on purpose. Codex truncates tool output at about 10,000 tokens and Claude Code at
 25,000, and text cut by the client never reaches the model. Search results therefore carry shortened
@@ -61,7 +65,7 @@ search_literature(
     topic="soil pH reference electrode stability",
     sort_by="newest",
     open_access_only=False,
-    limit_per_source=5,
+    limit_per_source=4,
 )
 ```
 
@@ -100,7 +104,8 @@ A 403, a 404 or an HTML page is not retried; only timeouts, 429 and 5xx response
 ```bash
 OPENALEX_EMAIL=you@example.com        # Optional contact email for API access
 UNPAYWALL_EMAIL=you@example.com       # Optional; OPENALEX_EMAIL or nomail@mail.com is used otherwise
-SEMANTIC_SCHOLAR_API_KEY=             # Optional, higher rate limits
+SEMANTIC_SCHOLAR_API_KEY=             # Optional, free; the keyless pool is usually rate-limited
+OPENALEX_API_KEY=                     # Optional, free; keyless use is about 100 searches a day per network
 
 # Local Zotero
 ZOTERO_LOCAL=true
@@ -112,7 +117,7 @@ ZOTERO_LIBRARY_ID=
 ZOTERO_API_KEY=
 
 # Storage
-PAPER_PILOT_DATA_DIR=./data
+PAPER_PILOT_DATA_DIR=                  # default: ~/.paper-pilot
 MAX_DOWNLOAD_MB=75                     # per-PDF download size cap
 PAPER_PILOT_ALLOW_EXTERNAL_PDF=true   # read PDFs outside the data dir (set false on networked transports)
 PDF_EMBED_MAX_MB=5                     # size cap for an embedded PDF resource
