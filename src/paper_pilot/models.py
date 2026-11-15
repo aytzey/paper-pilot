@@ -36,6 +36,13 @@ def normalize_arxiv_id(value: str | None) -> str | None:
     return None
 
 
+def normalize_pmcid(value: Any) -> str | None:
+    """'PMC123', a bare number, or any PMC / Europe PMC URL -> 'PMC123'."""
+    text = str(value or "").strip()
+    match = re.search(r"PMC(\d+)", text, re.IGNORECASE) or re.fullmatch(r"(\d+)", text)
+    return f"PMC{match.group(1)}" if match else None
+
+
 _RANK_STOPWORDS = frozenset(
     {
         "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "into",
@@ -152,6 +159,60 @@ class PaperRecord:
         """Combined ranking: topic relevance dominates, then citations / recency / OA."""
         return self.relevance_score(query) * 4.0 + self.rank_score()
 
+    def pdf_candidates(self) -> list[str]:
+        """Every known PDF URL for this paper, preferred first (alternates survive merging)."""
+        urls = [self.pdf_url, self.raw.get("original_pdf_url"), *self.raw.get("pdf_urls", [])]
+        return list(dict.fromkeys(url for url in urls if url))
+
+    def brief(self, max_abstract_chars: int = 700) -> dict[str, Any]:
+        """Compact record for MCP payloads: what an agent needs to screen and then download.
+
+        Tool output is truncated by the client (roughly 10k tokens in Codex, 25k in Claude Code),
+        so provider blobs stay out and the abstract is capped; the paper itself carries the rest.
+        """
+        abstract = (self.abstract or "") if max_abstract_chars > 0 else ""
+        if len(abstract) > max_abstract_chars:
+            abstract = abstract[:max_abstract_chars].rstrip() + "… [abstract truncated]"
+        authors = self.authors[:5] + ([f"+{len(self.authors) - 5} more"] if len(self.authors) > 5 else [])
+        download = self.raw.get("pdf_download")
+        if download:  # which copy was read: source, format, and the licence/version Unpaywall reports
+            download = {**{key: (download.get("location") or {}).get(key) for key in ("host_type", "license", "version")},
+                        **{key: download.get(key) for key in ("url", "resolver", "format")}}
+        record = {
+            "title": self.title,
+            "authors": authors,
+            "year": self.year,
+            "publication_date": self.publication_date,
+            "publication_date_precision": {4: "year", 7: "month", 10: "day"}.get(len(self.publication_date or "")),
+            # Listed only when providers disagree about the date.
+            "publication_dates": self.date_evidence() if len(self.date_evidence()) > 1 else None,
+            "venue": self.venue,
+            "doi": self.doi,
+            "arxiv_id": self.arxiv_id(),
+            "pmcid": self.raw.get("pmcid"),
+            "url": self.url,
+            "pdf_url": self.pdf_url,
+            "is_open_access": self.is_open_access,
+            "citation_count": self.citation_count,
+            "sources": self.raw.get("merged_sources") or [self.source],
+            "abstract": abstract,
+            "downloaded_from": {key: value for key, value in download.items() if value} if download else None,
+        }
+        return {key: value for key, value in record.items() if value not in (None, "", [])}
+
+    def arxiv_id(self) -> str | None:
+        if self.raw.get("arxiv_id"):
+            return normalize_arxiv_id(self.raw["arxiv_id"])
+        doi = normalize_doi(self.doi) or ""
+        if doi.startswith("10.48550/arxiv."):
+            return normalize_arxiv_id(doi.removeprefix("10.48550/arxiv."))
+        if self.source == "arxiv":
+            return normalize_arxiv_id(self.url) or normalize_arxiv_id(self.source_id)
+        for url in (self.pdf_url, self.url):
+            if url and "arxiv.org/" in url.lower():
+                return normalize_arxiv_id(url)
+        return None
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "source": self.source,
@@ -182,6 +243,7 @@ class DownloadedDocument:
     path: Path
     page_count: int
     extracted_preview: str
+    text_chars: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -190,6 +252,15 @@ class DownloadedDocument:
             "pdf_path": str(self.path),
             "page_count": self.page_count,
             "extracted_preview": self.extracted_preview,
+        }
+
+    def summary(self) -> dict[str, Any]:
+        """What was downloaded, without any of its text (that is read through read_pdf_text)."""
+        return {
+            "paper": self.paper.brief(max_abstract_chars=0),
+            "pdf_path": str(self.path),
+            "page_count": self.page_count,
+            "text_chars": self.text_chars,
         }
 
 
@@ -229,14 +300,14 @@ class DeepReadArtifact:
     extraction_status: str = "unknown"
     pages_without_text: list[int] = field(default_factory=list)
 
-    def to_dict(self, top_chunks: int = 5, max_chunk_chars: int = 1200) -> dict[str, Any]:
+    def to_dict(self, top_chunks: int = 5, max_chunk_chars: int = 400) -> dict[str, Any]:
         ranked = sorted(
             self.chunks,
             key=lambda chunk: (chunk.score or 0.0, -chunk.chunk_index),
             reverse=True,
         )
         return {
-            "paper": self.paper.to_dict(),
+            "paper": self.paper.brief(max_abstract_chars=0),
             "pdf_path": str(self.pdf_path),
             "text_path": str(self.text_path),
             "chunk_manifest_path": str(self.chunk_manifest_path),
@@ -244,9 +315,8 @@ class DeepReadArtifact:
             "full_text_char_count": self.full_text_char_count,
             "extraction_status": self.extraction_status,
             "pages_without_text": self.pages_without_text,
-            "reading_scope": "ranked_excerpts",
-            "extracted_preview": self.extracted_preview,
             "chunk_count": len(self.chunks),
+            # Pointers to where the question is discussed; the paper is read through full_text.
             "top_chunks": [chunk.to_dict(max_chars=max_chunk_chars) for chunk in ranked[:top_chunks]],
         }
 
@@ -286,6 +356,8 @@ def combine_papers(records: list[PaperRecord]) -> list[PaperRecord]:
                 "merged_sources": sorted({existing.source, record.source,
                                           *existing.raw.get("merged_sources", []), *record.raw.get("merged_sources", [])}),
                 "publication_dates": dates,
+                # A dead link in one index must not hide a working copy from another.
+                "pdf_urls": list(dict.fromkeys([*existing.pdf_candidates(), *record.pdf_candidates()])),
             },
         )
     return sorted(combined.values(), key=lambda item: item.rank_score(), reverse=True)

@@ -25,7 +25,7 @@ Install uv and Git first. Paper Pilot needs no separate account, API key, or Zot
 your AI client provides the model.
 
 A recorded MCP check delivered all 15 pages of Attention Is All You Need: 39,498 extracted
-characters across four responses. The repository includes the counts, cursors, PDF hash,
+characters across two responses. The repository includes the counts, cursors, PDF hash,
 and reproduction steps. This is a transport check, not a model-quality benchmark.
 
 [Try Paper Pilot](https://github.com/aytzey/paper-pilot#quick-start) or

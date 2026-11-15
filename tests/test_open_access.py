@@ -11,10 +11,9 @@ except ModuleNotFoundError:  # pragma: no cover
     import pymupdf as fitz
 
 from paper_pilot.config import Settings
-from paper_pilot.models import PaperRecord
+from paper_pilot.models import PaperRecord, combine_papers
 from paper_pilot.services.academic import AcademicSearchService
-from paper_pilot.services.net import DownloadTooLargeError
-from paper_pilot.services.open_access import OpenAccessService
+from paper_pilot.services.open_access import PMC_OPEN_DATA, OpenAccessService
 
 _PUBLIC_PDF = "https://93.184.216.34/paper.pdf"
 
@@ -101,8 +100,7 @@ def test_download_pdf_enforces_size_cap(tmp_path: Path) -> None:
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             await service._download_pdf(client, "topic", paper)
 
-    # size cap is hit on every retry -> the final raised error is DownloadTooLargeError
-    with pytest.raises(DownloadTooLargeError):
+    with pytest.raises(ValueError, match="Download exceeded 100 bytes"):
         asyncio.run(run())
 
 
@@ -154,7 +152,8 @@ def test_unpaywall_alternate_pdf_is_downloaded_with_provenance(tmp_path: Path, m
 
     path = asyncio.run(run())
     assert path.read_bytes() == data
-    assert seen == [best["url_for_pdf"]] * 3 + [alternate["url_for_pdf"]]
+    # A corrupt file is not retried: the next location gets its turn immediately.
+    assert seen == [best["url_for_pdf"], alternate["url_for_pdf"]]
     assert paper.pdf_url == alternate["url_for_pdf"]
     assert paper.raw["pdf_download"] == {"url": alternate["url_for_pdf"], "resolver": "unpaywall", "location": alternate}
 
@@ -182,7 +181,7 @@ def test_unpaywall_runs_only_when_a_pdf_is_needed(tmp_path: Path, monkeypatch, i
     monkeypatch.setattr(asyncio, "sleep", no_delay)
     settings = _settings(tmp_path, unpaywall_email="you@example.com" if resolve else None)
     url = f"https://93.184.216.34{initial_path}" if initial_path else None
-    document = asyncio.run(OpenAccessService(settings).inspect_remote_pdf(url, doi="10.1234/1"))
+    document = asyncio.run(OpenAccessService(settings).download_paper(url, doi="10.1234/1"))
     assert document.path.read_bytes() == pdf
     assert lookups == (["10.1234/1"] if resolve else [])
     assert requested[-1] == "/paper.pdf"
@@ -216,9 +215,9 @@ def test_failed_pdf_uses_openalex_when_unpaywall_is_unavailable(tmp_path, monkey
     monkeypatch.setattr(AcademicSearchService, "_lookup_openalex_by_doi", openalex)
     monkeypatch.setattr(asyncio, "sleep", no_delay)
     failed_url = "https://93.184.216.34/broken.pdf"
-    document = asyncio.run(OpenAccessService(_settings(tmp_path)).inspect_remote_pdf(failed_url, doi="10.1234/test"))
+    document = asyncio.run(OpenAccessService(_settings(tmp_path)).download_paper(failed_url, doi="10.1234/test"))
     assert document.path.read_bytes() == data
-    assert requested == ["/broken.pdf"] * 3 + ["/paper.pdf"]
+    assert requested == ["/broken.pdf", "/paper.pdf"]
     assert document.paper.raw["original_pdf_url"] == failed_url
     assert document.paper.raw["unpaywall"]["status"] == "error"
     assert document.paper.raw["pdf_download"]["resolver"] == "openalex"
@@ -275,7 +274,7 @@ def test_missing_email_uses_dummy_then_openalex_on_failure(tmp_path, monkeypatch
     settings = _settings(tmp_path, unpaywall_email=None, openalex_email=None)
     settings.cache_dir.mkdir()
     url = f"https://93.184.216.34{initial_path}" if initial_path else None
-    document = asyncio.run(OpenAccessService(settings).inspect_remote_pdf(url, doi="10.1234/test"))
+    document = asyncio.run(OpenAccessService(settings).download_paper(url, doi="10.1234/test"))
     assert document.path.read_bytes() == data
     assert "api.unpaywall.org" in requested
     if unpaywall_status == 200:
@@ -287,3 +286,90 @@ def test_missing_email_uses_dummy_then_openalex_on_failure(tmp_path, monkeypatch
         assert document.paper.raw["pdf_download"]["resolver"] == "openalex"
         assert "HTTPStatusError" in document.paper.raw["unpaywall"]["error"]
         assert any("OpenAlex fallback" in warning for warning in document.paper.raw["access_warnings"])
+
+
+def _routed_client(monkeypatch, routes: dict[str, httpx.Response], seen: list[str]) -> None:
+    """Serve canned responses by URL prefix; anything else is a 404."""
+    def handler(request):
+        url = str(request.url)
+        seen.append(url)
+        return next((response for prefix, response in routes.items() if url.startswith(prefix)), httpx.Response(404))
+
+    async def no_delay(seconds):
+        pass
+
+    original_client = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original_client(transport=httpx.MockTransport(handler), **kwargs))
+    monkeypatch.setattr(asyncio, "sleep", no_delay)
+
+
+def _pmc_listing(*keys: str) -> httpx.Response:
+    return httpx.Response(200, text="<ListBucketResult>" + "".join(f"<Contents><Key>{key}</Key></Contents>" for key in keys) + "</ListBucketResult>")
+
+
+def test_pmc_link_is_downloaded_from_open_data_not_the_bot_walled_page(tmp_path, monkeypatch):
+    data, seen = _pdf_bytes(), []
+    _routed_client(monkeypatch, {
+        f"{PMC_OPEN_DATA}/?list-type=2&prefix=PMC123.": _pmc_listing(
+            "PMC123.1/PMC123.1.pdf", "PMC123.1/PMC123.1.txt", "PMC123.1/mmc1.pdf", "PMC1234.1/PMC1234.1.pdf"),
+        f"{PMC_OPEN_DATA}/PMC123.1/PMC123.1.pdf": httpx.Response(200, content=data),
+    }, seen)
+    document = asyncio.run(OpenAccessService(_settings(tmp_path)).download_paper(
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC123/pdf/"))
+    assert document.path.read_bytes() == data
+    assert not any("ncbi.nlm.nih.gov" in url for url in seen)
+    download = document.paper.raw["pdf_download"]
+    assert (download["resolver"], download["format"]) == ("pmc_open_data", "pdf")
+    assert download["supplements"] == [f"{PMC_OPEN_DATA}/PMC123.1/mmc1.pdf"]
+
+
+def test_closed_doi_with_text_only_pmc_manuscript_becomes_a_readable_pdf(tmp_path, monkeypatch):
+    seen = []
+    manuscript = "Methods\n" + "We measured drift over ninety days. " * 300 + "\x9f\nFINAL SECTION reaches the reader."
+    _routed_client(monkeypatch, {
+        "https://api.unpaywall.org": httpx.Response(200, json={"is_oa": False, "oa_locations": []}),
+        "https://pmc.ncbi.nlm.nih.gov/tools/idconv": httpx.Response(200, json={"records": [{"pmcid": "PMC77"}]}),
+        f"{PMC_OPEN_DATA}/?list-type=2&prefix=PMC77.": _pmc_listing("PMC77.1/PMC77.1.txt", "PMC77.1/PMC77.1.xml"),
+        f"{PMC_OPEN_DATA}/PMC77.1/PMC77.1.txt": httpx.Response(200, content=manuscript.encode()),
+    }, seen)
+    settings = _settings(tmp_path)
+    settings.cache_dir.mkdir()
+    document = asyncio.run(OpenAccessService(settings).download_paper(doi="10.1234/closed"))
+    with fitz.open(document.path) as pdf:
+        text = "".join(page.get_text("text") for page in pdf)
+    assert "FINAL SECTION" in text and "\x9f" not in text
+    assert document.text_chars > 9000 and document.page_count > 1
+    assert document.paper.raw["pdf_download"]["format"] == "text_rendered_as_pdf"
+    assert any("generated from PMC" in warning for warning in document.paper.raw["access_warnings"])
+
+
+def test_arxiv_copy_is_tried_before_a_publisher_link(tmp_path, monkeypatch):
+    data, seen = _pdf_bytes(), []
+    _routed_client(monkeypatch, {"https://arxiv.org/pdf/1706.03762": httpx.Response(200, content=data)}, seen)
+    service = OpenAccessService(_settings(tmp_path))
+    document = asyncio.run(service.download_paper("https://93.184.216.34/paywalled.pdf", arxiv_id="arXiv:1706.03762"))
+    asyncio.run(service.download_paper("https://arxiv.org/abs/1706.03762v7"))  # a requested version is kept
+    assert seen == ["https://arxiv.org/pdf/1706.03762", "https://arxiv.org/pdf/1706.03762v7"]
+    assert document.paper.raw["pdf_download"]["resolver"] == "arxiv"
+
+
+@pytest.mark.parametrize("status,attempts", [(403, 1), (404, 1), (503, 3)])
+def test_only_transient_failures_are_retried(tmp_path, monkeypatch, status, attempts):
+    seen = []
+    _routed_client(monkeypatch, {_PUBLIC_PDF: httpx.Response(status)}, seen)
+    with pytest.raises(ValueError, match=str(status)):
+        asyncio.run(OpenAccessService(_settings(tmp_path)).download_paper(_PUBLIC_PDF))
+    assert seen == [_PUBLIC_PDF] * attempts
+
+
+def test_merging_sources_keeps_every_pdf_link_as_a_download_candidate(tmp_path, monkeypatch):
+    data, seen = _pdf_bytes(), []
+    dead, alive = "https://93.184.216.34/dead.pdf", "https://93.184.216.34/alive.pdf"
+    merged = combine_papers([
+        PaperRecord(source="a", source_id="1", title="Paper", doi="10.1234/x", pdf_url=dead, citation_count=9),
+        PaperRecord(source="b", source_id="2", title="Paper", doi="10.1234/x", pdf_url=alive),
+    ])[0]
+    merged.raw["unpaywall"] = {"status": "ok"}
+    _routed_client(monkeypatch, {alive: httpx.Response(200, content=data)}, seen)
+    documents, _ = asyncio.run(OpenAccessService(_settings(tmp_path)).download_best_papers("topic", [merged]))
+    assert seen == [dead, alive] and documents[0].path.read_bytes() == data

@@ -45,15 +45,20 @@ The CLI downloads accessible papers, saves a reading pack, and opens a citation 
 
 ## See what reaches your agent
 
-In a recorded stdio MCP check, **Attention Is All You Need** was delivered as 15 pages of text across four responses. All **39,498 extracted characters** arrived in order. The original **2,215,244-byte PDF** also arrived unchanged through both supported PDF transfer paths.
+In a recorded stdio MCP check, **Attention Is All You Need** was delivered as 15 pages of text across two responses. All **39,498 extracted characters** arrived in order. The original **2,215,244-byte PDF** also arrived unchanged through both supported PDF transfer paths.
 
 | What was checked | Recorded result |
 |---|---|
 | Whole-document text | Every batch joined to exactly match extraction from all PDF pages |
 | Original PDF | Returned bytes matched the downloaded file |
-| A multidisciplinary example | Two soil-pH papers: 37 pages, 96,163 characters, nine responses |
+| A multidisciplinary example | Two soil-pH papers: 37 pages, 96,163 characters, six responses |
+| A paper whose publisher blocks scripts | Read in full from the PubMed Central open-data copy |
+| A paywalled paper with an author manuscript in PubMed Central | Read in full; the response says which copy it is |
+| Response size | Default search, download and reading responses stayed under 30,000 characters |
 
-Read the [walkthrough and reproduction steps](examples/full-paper-walkthrough.md) or inspect the [verification data](examples/full-text-verification.json). This verifies delivery, not model comprehension. Codex and Claude UI sessions were not tested in that check.
+The last row matters more than it looks. Codex truncates tool output at roughly 10,000 tokens and Claude Code at 25,000. A response above that is cut by the client, and the agent is left with an abstract and the first pages without knowing it. Every default response is sized to arrive whole.
+
+Read the [walkthrough and reproduction steps](examples/full-paper-walkthrough.md) or inspect the [verification data](examples/full-text-verification.json). The transport check verifies delivery, not model comprehension. Separately, one Claude Code session and one Codex CLI session were each asked three questions whose answers sit on pages 22 and 26 of a 26-page paper; both read to the end and answered correctly.
 
 ## Research a practical decision
 
@@ -61,7 +66,7 @@ Start with something you need to decide:
 
 > I want to build an inexpensive circuit to measure soil pH. Use Paper Pilot to investigate soil science, electrode materials, and electronics, starting with recent papers and following foundational references. Read the decisive papers in full. Compare cost, calibration, drift, and measurement conditions. Recommend an approach, cite the evidence, and propose the first experiment to validate it.
 
-The server supplies research instructions alongside its tools: split the question across disciplines, continue the relevant searches, inspect the full papers, seek contrary evidence, and disclose gaps before recommending an approach.
+The server supplies research instructions alongside its tools: split the question across disciplines, continue the relevant searches, inspect the full papers, seek contrary evidence, and disclose gaps before recommending an approach. The full eight-step workflow is also an MCP prompt, `research_decision` (in Claude Code: `/mcp__paper-pilot__research_decision`).
 
 Other useful starting points:
 
@@ -71,7 +76,9 @@ Other useful starting points:
 | Understand a disputed result | “Find papers supporting and challenging this claim. Compare their methods and conditions with page citations.” |
 | Inspect a paper you already have | “Read this PDF completely. Check the main figures and list the assumptions behind its conclusion.” |
 
-Search covers **Semantic Scholar, OpenAlex, arXiv, Crossref, Europe PMC, and DOAJ**. A working PDF is used directly; missing or failed PDFs are resolved through Unpaywall, with OpenAlex recovery if its API fails. Zotero sync is optional.
+Search covers **Semantic Scholar, OpenAlex, arXiv, Crossref, Europe PMC, and DOAJ**. To get the full text, `download_paper` tries arXiv, the PubMed Central open-data store, every PDF link those indexes know, Unpaywall locations, and finally PubMed Central looked up by DOI. Zotero sync is optional.
+
+Not every paper has an open copy. In a check of 60 search results across five topics, 40 could be read in full and 20 could not: paywalled articles and dead links. For those, the tool returns the reason, and the agent is told to report the paper as unread instead of leaning on its abstract.
 
 ## How full-paper reading works
 
@@ -83,7 +90,8 @@ flowchart LR
     R --> A[Agent compares the evidence]
 ```
 
-- **Text:** `read_pdf_text` returns consecutive pages with continuation cursors, including pages longer than a single response.
+- **Download:** `download_paper` takes a DOI, an arXiv ID, a PubMed Central ID or a PDF link, and returns the first batch of text with a cursor for the rest.
+- **Text:** `read_pdf_text` returns consecutive pages with continuation cursors, including pages longer than a single response. A batch holds up to 20,000 characters, so a typical paper takes two to four calls.
 - **Figures and tables:** `render_pdf_pages` returns page images for visual inspection.
 - **Original file:** `read_pdf_document` provides the PDF when your agent needs it and the client supports that delivery path.
 - **Evidence trail:** retain source, DOI, PDF page, access location, and extraction warnings.

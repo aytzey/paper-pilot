@@ -178,7 +178,8 @@ For a quick reading pack:
 5. `write_to_zotero=true` only after Zotero health is confirmed
 
 No client needs filesystem access or PDF-resource support for `read_pdf_text`: the text is in the
-tool response. The default batch holds up to 12,000 text characters (maximum 20,000) and 20 page segments.
+tool response. A batch holds up to 20,000 text characters and 20 page segments, which stays under the
+tool-output limit of Codex (about 10,000 tokens) and Claude Code (25,000 tokens).
 An oversized page resumes at the exact character.
 Read from page 1, char 0 through every continuation before claiming complete reading, and disclose
 unresolved extraction gaps. PDFs need a readable text layer; figures/formulas still need visual inspection.

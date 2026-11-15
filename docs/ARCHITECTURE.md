@@ -30,16 +30,26 @@ Crossref newest-first queries use bounded offset paging because its cursor rejec
 sorting. Provider limits and date meanings remain visible. The model owns cross-call deduplication.
 `PaperRecord` preserves date precision/provenance and conflicting dates from merged records.
 
-The server initialization instructions carry the shared research-to-decision workflow to clients
-outside this checkout. The client model plans queries, evaluates evidence and makes recommendations.
+The server initialization instructions carry the reading protocol and a condensed research-to-decision
+workflow to clients outside this checkout; the full eight-step workflow is the `research_decision` MCP prompt. The client model plans queries, evaluates evidence and makes recommendations.
 
 ### `services/open_access.py`
 
-Resolves open-access PDF candidates, downloads files, and extracts PDF previews.
-Tries an existing PDF URL first. On failure, DOI records without a prior lookup use Unpaywall.
-With no URL, a DOI can be supplied directly to `inspect_open_access_pdf` to request resolution.
-When resolution is needed, tries Unpaywall's best and alternate PDF locations,
-recording the downloaded copy's location and license. Landing pages are kept separate from PDF URLs.
+Gets the full text of one paper. `_acquire` walks the routes in order of reliability and stops at the
+first readable PDF: arXiv by ID, the PubMed Central open-data store by PMC ID, every PDF link the
+search sources reported, Unpaywall's best and alternate locations, then PubMed Central looked up by DOI.
+PubMed Central records that hold text only are laid out as a PDF so the page-based reading tools work
+on them unchanged. Permanent failures (403, 404, an HTML page, a corrupt file) move on to the next
+route at once; only timeouts, 429 and 5xx responses are retried. The downloaded copy's location and
+licence are recorded, and files are named by content hash so parallel downloads cannot collide.
+
+### Response budgets
+
+Clients cut what does not fit: Codex truncates tool output at about 10,000 tokens, Claude Code at
+25,000, and Claude Code keeps about 2,000 characters of server instructions. `server.py` therefore
+sends compact paper records (`PaperRecord.brief`), shares one abstract budget across a result list,
+gives `deep_read_topic` one text budget across its papers, and keeps reports on disk. Tests in
+`tests/test_server_pdf.py` hold the default responses and the instructions under those limits.
 
 ### `services/deep_read.py`
 

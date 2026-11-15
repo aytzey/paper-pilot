@@ -8,8 +8,8 @@ authors:
 repository-code: https://github.com/aytzey/paper-pilot
 url: https://github.com/aytzey/paper-pilot
 license: MIT
-version: 0.4.0
-date-released: 2026-04-10
+version: 0.8.0
+date-released: 2026-11-15
 abstract: >
   Your AI's research copilot. Searches 6 academic databases, downloads real PDFs,
   reads them cover to cover, extracts evidence with citations, renders figures,

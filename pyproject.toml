@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "paper-pilot"
-version = "0.7.0"
+version = "0.8.0"
 description = "Let Codex and Claude find, download, and read full research papers. A local MCP server with six academic sources, Unpaywall, and optional Zotero sync."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -42,7 +42,7 @@ dependencies = [
   "beautifulsoup4>=4.14.3",
   "httpx>=0.28.1",
   "lxml>=6.0.2",
-  "mcp>=1.12.4,<3",
+  "mcp>=1.12.4,<2",
   "PyMuPDF>=1.24.0",
   "python-dotenv>=1.2.2",
   "pyzotero>=1.6.11",

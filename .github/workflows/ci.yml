@@ -4,6 +4,10 @@ on:
   push:
     branches: ["**"]
   pull_request:
+  schedule:
+    # The wheel check below installs without the lockfile, as users do. Run it weekly so a
+    # breaking upstream release is caught even when nothing is pushed.
+    - cron: "17 6 * * 1"
 
 jobs:
   test:
