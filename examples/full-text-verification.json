@@ -1,118 +1,216 @@
 {
-  "verified_at": "2026-09-07T11:01:59.238544+00:00",
-  "transport": "stdio MCP ClientSession",
-  "tool_count": 17,
-  "paper": {
-    "title": "Attention Is All You Need",
-    "source_id": "1706.03762v7",
-    "authors": [
-      "Ashish Vaswani",
-      "Noam Shazeer",
-      "Niki Parmar",
-      "Jakob Uszkoreit",
-      "Llion Jones",
-      "Aidan N. Gomez",
-      "Lukasz Kaiser",
-      "Illia Polosukhin"
-    ],
-    "year": 2017,
-    "pdf_url": "https://arxiv.org/pdf/1706.03762v7"
+ "verified_at": "2026-11-15T13:53:59.941685+00:00",
+ "transport": "stdio MCP ClientSession",
+ "tool_count": 17,
+ "server_instructions_chars": 1667,
+ "paper": {
+  "title": "Attention Is All You Need",
+  "source_id": "1706.03762v7",
+  "year": 2017,
+  "pdf_url": "https://arxiv.org/pdf/1706.03762v7"
+ },
+ "pdf_sha256": "bdfaa68d8984f0dc02beaca527b76f207d99b666d31d1da728ee0728182df697",
+ "page_count": 15,
+ "text_chars": 39498,
+ "batch_count": 2,
+ "largest_response_chars": 23114,
+ "all_pages_equal_pdf_extraction": true,
+ "last_page_chars": 781,
+ "references_and_conclusion_delivered": true,
+ "page_3_image_delivered": true,
+ "batches": [
+  {
+   "chars": 20000,
+   "pages": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+   ],
+   "next_cursor": {
+    "start_page": 7,
+    "start_char": 1885
+   }
   },
-  "pdf_sha256": "bdfaa68d8984f0dc02beaca527b76f207d99b666d31d1da728ee0728182df697",
-  "page_count": 15,
-  "text_chars": 39498,
-  "batch_count": 4,
-  "all_pages_equal_pdf_extraction": true,
-  "last_page_chars": 781,
-  "references_and_conclusion_delivered": true,
-  "page_3_image_delivered": true,
-  "batches": [
-    {
-      "chars": 12000,
-      "pages": [
-        1,
-        2,
-        3,
-        4,
-        5
-      ],
-      "next_cursor": {
-        "start_page": 5,
-        "start_char": 551
-      }
-    },
-    {
-      "chars": 12000,
-      "pages": [
-        5,
-        6,
-        7,
-        8
-      ],
-      "next_cursor": {
-        "start_page": 8,
-        "start_char": 2564
-      }
-    },
-    {
-      "chars": 12000,
-      "pages": [
-        8,
-        9,
-        10,
-        11,
-        12
-      ],
-      "next_cursor": {
-        "start_page": 12,
-        "start_char": 2069
-      }
-    },
-    {
-      "chars": 3498,
-      "pages": [
-        12,
-        13,
-        14,
-        15
-      ],
-      "next_cursor": null
-    }
-  ],
-  "provider_warning_count": 1,
-  "limitations": [
-    "Protocol-level verification; no Claude Desktop or Codex UI session was exercised.",
-    "This verifies delivered text, not model comprehension or visual inspection of every page."
-  ],
-  "pdf_transfer": {
-    "transport": "stdio MCP",
-    "pdf_sha256": "bdfaa68d8984f0dc02beaca527b76f207d99b666d31d1da728ee0728182df697",
-    "pdf_bytes": 2215244,
-    "resource_bytes_equal_original": true,
-    "embedded_bytes_equal_original": true,
-    "client_ui_verified": false
-  },
-  "soil_ph": {
-    "instructions_sha256": "53fc383c09d52becb6c2ef0a2dd756e7d4dfcfbf244e719b6a53cf617fccce04",
-    "papers": [
-      {
-        "doi": "10.1038/s41598-026-57457-7",
-        "title": "Distributable screen-printed soil pH sensor demonstrates robust response across variable soil conditions.",
-        "pages": 24,
-        "characters": 60332,
-        "batches": 6,
-        "warnings": [],
-        "sha256": "8ac4a5fa370729dd698aa27faecbefea497b23fbbab80132ecf30670e15cdef5"
-      },
-      {
-        "doi": "10.3390/mi14122188",
-        "title": "Espial: Electrochemical Soil pH Sensor for In Situ Real-Time Monitoring.",
-        "pages": 13,
-        "characters": 35831,
-        "batches": 3,
-        "warnings": [],
-        "sha256": "90c3639d9d51d9ac67f79e4d1c93d76541abb65730b3c35f1200977dfd98fe1a"
-      }
-    ]
+  {
+   "chars": 19498,
+   "pages": [
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "next_cursor": null
   }
+ ],
+ "limitations": [
+  "The transport sections are protocol-level; agent_sessions records one run per client on one paper.",
+  "This verifies delivered text, not model comprehension or visual inspection of every page."
+ ],
+ "pdf_transfer": {
+  "transport": "stdio MCP",
+  "pdf_sha256": "bdfaa68d8984f0dc02beaca527b76f207d99b666d31d1da728ee0728182df697",
+  "pdf_bytes": 2215244,
+  "resource_bytes_equal_original": true,
+  "embedded_bytes_equal_original": true,
+  "client_ui_verified": false
+ },
+ "soil_ph": {
+  "instructions_sha256": "da8c116ec39a266a44cb2aeb3d87cb3735bee8e1fdc275cc33a2fe54c2557a2d",
+  "papers": [
+   {
+    "doi": "10.1038/s41598-026-57457-7",
+    "pages": 24,
+    "characters": 60332,
+    "batches": 4,
+    "warnings": [],
+    "downloaded_from": {
+     "url": "https://www.nature.com/articles/s41598-026-57457-7_reference.pdf",
+     "resolver": "unpaywall"
+    },
+    "equal_pdf_extraction": true,
+    "sha256": "8ac4a5fa370729dd698aa27faecbefea497b23fbbab80132ecf30670e15cdef5"
+   },
+   {
+    "doi": "10.3390/mi14122188",
+    "pages": 13,
+    "characters": 35831,
+    "batches": 2,
+    "warnings": [],
+    "downloaded_from": {
+     "url": "https://www.mdpi.com/2072-666X/14/12/2188/pdf?version=1701340733",
+     "resolver": "unpaywall"
+    },
+    "equal_pdf_extraction": true,
+    "sha256": "90c3639d9d51d9ac67f79e4d1c93d76541abb65730b3c35f1200977dfd98fe1a"
+   }
+  ]
+ },
+ "access_routes": [
+  {
+   "case": "Publisher PDF bot-walled, copy in PubMed Central",
+   "arguments": {
+    "doi": "10.3390/s110100573"
+   },
+   "downloaded": true,
+   "downloaded_from": {
+    "url": "https://pmc-oa-opendata.s3.amazonaws.com/PMC3274122.1/PMC3274122.1.pdf",
+    "resolver": "pmc_open_data",
+    "format": "pdf"
+   },
+   "pages": 26,
+   "characters": 72081,
+   "batches": 4,
+   "equal_pdf_extraction": true,
+   "supplement_links": 0
+  },
+  {
+   "case": "Paywalled at the publisher, author manuscript in PubMed Central (text only)",
+   "arguments": {
+    "doi": "10.1021/acs.biochem.9b00573"
+   },
+   "downloaded": true,
+   "downloaded_from": {
+    "url": "https://pmc-oa-opendata.s3.amazonaws.com/PMC7309633.1/PMC7309633.1.txt",
+    "resolver": "pmc_open_data",
+    "format": "text_rendered_as_pdf"
+   },
+   "pages": 10,
+   "characters": 45218,
+   "batches": 3,
+   "equal_pdf_extraction": true,
+   "supplement_links": 0
+  },
+  {
+   "case": "Publisher answers 403, doi.org link passed as pdf_url",
+   "arguments": {
+    "pdf_url": "https://doi.org/10.1016/j.omtm.2020.09.002"
+   },
+   "downloaded": true,
+   "downloaded_from": {
+    "url": "https://pmc-oa-opendata.s3.amazonaws.com/PMC7549055.1/PMC7549055.1.pdf",
+    "resolver": "pmc_open_data",
+    "format": "pdf"
+   },
+   "pages": 13,
+   "characters": 60152,
+   "batches": 4,
+   "equal_pdf_extraction": true,
+   "supplement_links": 2
+  },
+  {
+   "case": "arXiv abstract page passed as pdf_url",
+   "arguments": {
+    "pdf_url": "https://arxiv.org/abs/1706.03762"
+   },
+   "downloaded": true,
+   "downloaded_from": {
+    "url": "https://arxiv.org/pdf/1706.03762",
+    "resolver": "arxiv"
+   },
+   "pages": 15,
+   "characters": 39498,
+   "batches": 2,
+   "equal_pdf_extraction": true,
+   "supplement_links": 0
+  },
+  {
+   "case": "Paywalled, no open copy",
+   "arguments": {
+    "doi": "10.1109/jsen.2024.3514735"
+   },
+   "downloaded": false,
+   "error": "Error executing tool download_paper: Failed to download 10.1109/jsen.2024.3514735: No open-access full text is known for this paper: no PDF link, and neither Unpaywall nor PubMed Central has a copy. It is probably paywalled."
+  }
+ ],
+ "default_response_chars": {
+  "search_literature": 25869,
+  "deep_read_topic": 29164,
+  "research_topic": 19571
+ },
+ "agent_sessions": {
+  "date": "2026-11-15",
+  "doi": "10.3390/s110100573",
+  "pages": 26,
+  "answer_pages": [
+   22,
+   26
+  ],
+  "prompt_gave_tool_instructions": false,
+  "sessions": [
+   {
+    "client": "Claude Code (headless)",
+    "calls": [
+     "download_paper",
+     "read_pdf_text",
+     "read_pdf_text",
+     "read_pdf_text"
+    ],
+    "reached_end_of_document": true,
+    "answers_correct": 3,
+    "largest_response_chars": 23261
+   },
+   {
+    "client": "Codex CLI 0.169.0 (exec)",
+    "calls": [
+     "download_paper",
+     "read_pdf_text",
+     "read_pdf_text",
+     "read_pdf_text",
+     "render_pdf_pages"
+    ],
+    "reached_end_of_document": true,
+    "answers_correct": 3,
+    "largest_text_response_chars": 23999
+   }
+  ]
+ }
 }

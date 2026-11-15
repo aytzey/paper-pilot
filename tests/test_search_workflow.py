@@ -127,7 +127,7 @@ def test_newest_order_mcp_contract_and_failed_source_retry(tmp_path, monkeypatch
         return json.loads(next(b.text for b in blocks if b.type == "text"))
 
     payload = asyncio.run(run())
-    assert [p["source_id"] for p in payload["results"]] == ["new", "old", "unknown"]
+    assert [p["title"] for p in payload["results"]] == ["Soil pH new", "Soil pH old", "Soil pH unknown"]
     assert payload["results"][0]["publication_date_precision"] == "day"
     failed = [s for s in payload["source_status"] if s["status"] == "error"]
     assert len(failed) == 5 and all(s["retry_request"]["source"] == s["source"] for s in failed)

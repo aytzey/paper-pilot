@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.8.0 - 2026-11-15
+
+The goal of this release: an agent that asks for a paper gets the whole paper, not its abstract.
+
+### Fixed
+- **New installs crashed on start.** `uvx --from git+…` resolved `mcp` 2.x, which removed
+  `mcp.server.fastmcp`. The dependency is pinned to `mcp>=1.12.4,<2` again.
+- **Responses were cut by the client.** A default `deep_read_topic` call returned about 289,000
+  characters (roughly 72,000 tokens), far above the tool-output limit of Codex (about 10,000 tokens)
+  and Claude Code (25,000). The same first pages were sent up to four times (`full_text`, two
+  `extracted_preview` copies, `report_markdown`). It now returns about 29,000 characters. Default
+  `search_literature` went from about 68,000 to 26,000 characters.
+- **Server instructions were truncated.** Claude Code keeps about 2,000 characters; the old
+  instructions were three times that and lost their last steps. They are now 1,667 characters with
+  the reading protocol first. The full workflow is available as the `research_decision` prompt.
+- `paper-pilot demo` crashed with `'list' object has no attribute 'get'`.
+- Two downloads started in the same second with the same title overwrote each other. Files are now
+  named by content hash, which also stops repeated downloads from piling up copies.
+
+### Changed
+- **`inspect_open_access_pdf` is now `download_paper`** and takes `doi`, `pdf_url`, `arxiv_id`,
+  `pmcid` and `title`. A `doi.org` link, an arXiv abstract page or a PMC article page also works as
+  `pdf_url`. It returns the first full-text batch with a cursor instead of a five-page preview.
+- **More routes to the full text**, tried in this order: arXiv by ID, the PubMed Central open-data
+  store, every PDF link the search sources reported, Unpaywall, then PubMed Central looked up by DOI.
+  PMC links on `pmc.ncbi.nlm.nih.gov` and `europepmc.org` answer scripts with a bot challenge and were
+  the largest source of failed downloads. Paywalled papers with an author manuscript in PMC can now
+  be read. On the first 12 results of five topic searches (60 papers), full-text access went from
+  32 to 40; the rest are paywalled or dead links.
+- Permanent failures (403, 404, an HTML page, a corrupt file) are no longer retried. A failed
+  download returns in about a second instead of 7 to 37.
+- Merged search records keep every PDF link as a download candidate. Semantic Scholar's arXiv and
+  PMC ids and all OpenAlex locations are kept too.
+- `read_pdf_text` returns up to 20,000 characters by default (was 12,000), so a typical paper takes
+  two to four calls.
+- Tool payloads carry compact paper records: no `raw` provider blobs, authors capped at five,
+  abstracts sharing one budget. `research_topic` and `deep_read_topic` no longer inline
+  `report_markdown` or `extracted_preview`; the report stays at `report_path`.
+- `download_paper` warns when a file is short or has no text layer, and lists supplement PDFs that
+  PubMed Central holds for the article.
+
 ## 0.7.0 - 2026-06-01
 
 ### Changed

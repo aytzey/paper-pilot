@@ -32,14 +32,13 @@ def run_demo(
             download_top_n=download_top_n,
             write_graph=True,
         )
-    )
+    )[0]  # the tool returns [result, *optional content blocks]
 
     papers = result.get("top_papers", [])
     deep_reads = result.get("deep_reads", [])
     print(f"\n  Found {len(papers)} papers · deep-read {len(deep_reads)} full-text PDFs\n", file=sys.stderr)
     for paper in papers[:8]:
-        authors = ", ".join(paper.get("authors", [])[:2]) or "unknown"
-        print(f"   • {paper.get('title')} ({paper.get('year') or 'n/a'}) · {authors}", file=sys.stderr)
+        print(f"   • {paper.get('title')} ({paper.get('year') or 'n/a'})", file=sys.stderr)
 
     report_path = result.get("report_path")
     graph_path = result.get("graph_path")

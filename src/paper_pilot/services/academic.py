@@ -14,8 +14,15 @@ from urllib.parse import quote
 
 import httpx
 
+from paper_pilot import __version__
 from paper_pilot.config import Settings
-from paper_pilot.models import PaperRecord, combine_papers, normalize_doi, normalize_publication_date
+from paper_pilot.models import (
+    PaperRecord,
+    combine_papers,
+    normalize_doi,
+    normalize_pmcid,
+    normalize_publication_date,
+)
 
 SearchSource = Literal["all", "semantic_scholar", "openalex", "arxiv", "crossref", "europe_pmc", "doaj"]
 SearchOrder = Literal["relevance", "newest"]
@@ -97,8 +104,8 @@ class AcademicSearchService:
 
     def _user_agent(self) -> str:
         if self.settings.openalex_email:
-            return f"paper-pilot/0.4 ({self.settings.openalex_email})"
-        return "paper-pilot/0.4"
+            return f"paper-pilot/{__version__} ({self.settings.openalex_email})"
+        return f"paper-pilot/{__version__}"
 
     async def search_literature(
         self,
@@ -160,7 +167,10 @@ class AcademicSearchService:
             for source_name, result in zip(selected, gathered, strict=True):
                 current_request = {**request, "source": source_name, "cursor": cursor}
                 if isinstance(result, Exception):
-                    warnings.append(f"{source_name} search failed: {self._format_exception(result)}")
+                    hint = ""
+                    if source_name == "semantic_scholar" and "429" in str(result) and not self.settings.semantic_scholar_api_key:
+                        hint = " (its keyless pool is usually rate-limited; set SEMANTIC_SCHOLAR_API_KEY)"
+                    warnings.append(f"{source_name} search failed: {self._format_exception(result)}{hint}")
                     source_status.append({"source": source_name, "status": "error", "sort_requested": sort_by,
                                           "error": type(result).__name__, "retry_request": current_request})
                     continue
@@ -235,7 +245,7 @@ class AcademicSearchService:
         except Exception as exc:
             fallback = await self.search_literature(seed_title, limit_per_source=max(limit // 2, 1), open_access_only=open_access_only)
             fallback.warnings.append(
-                f"Semantic Scholar recommendation endpoint unavailable ({exc}); fell back to keyword search."
+                f"Semantic Scholar recommendation endpoint unavailable ({self._format_exception(exc)}); fell back to keyword search."
             )
             return SearchBundle(results=fallback.results[:limit], warnings=fallback.warnings)
 
@@ -528,6 +538,8 @@ class AcademicSearchService:
             (link.get("url") for link in links if (link.get("type") or "").lower() == "fulltext"),
             None,
         )
+        if not pdf_url and (landing or "").lower().split("?")[0].endswith(".pdf"):
+            pdf_url = landing
         journal = bibjson.get("journal") or {}
         year = int(bibjson["year"]) if str(bibjson.get("year", "")).strip().isdigit() else None
         month = str(bibjson.get("month") or "").zfill(2)
@@ -570,6 +582,10 @@ class AcademicSearchService:
             is_open_access=bool(item.get("isOpenAccess") or pdf_info.get("url")),
             keywords=item.get("fieldsOfStudy") or [],
             related_score=related_score,
+            raw={key: value for key, value in {
+                "arxiv_id": external_ids.get("ArXiv"),
+                "pmcid": normalize_pmcid(external_ids.get("PubMedCentral")),
+            }.items() if value},
         )
 
     def _paper_from_openalex(self, item: dict[str, Any]) -> PaperRecord:
@@ -600,6 +616,10 @@ class AcademicSearchService:
             citation_count=item.get("cited_by_count"),
             is_open_access=bool(open_access.get("is_oa") or best_oa.get("pdf_url")),
             keywords=[((item.get("primary_topic") or {}).get("display_name"))] if (item.get("primary_topic") or {}).get("display_name") else [],
+            raw={key: value for key, value in {
+                "pmcid": normalize_pmcid((item.get("ids") or {}).get("pmcid")),
+                "pdf_urls": [loc["pdf_url"] for loc in item.get("locations") or [] if (loc or {}).get("pdf_url")],
+            }.items() if value},
         )
 
     def _paper_from_crossref(self, item: dict[str, Any]) -> PaperRecord:
@@ -669,6 +689,7 @@ class AcademicSearchService:
             citation_count=item.get("citedByCount"),
             is_open_access=(item.get("isOpenAccess") == "Y") or bool(pdf_url),
             keywords=keywords,
+            raw={"pmcid": item["pmcid"]} if item.get("pmcid") else {},
         )
 
     def _parse_arxiv_feed(self, xml_text: str) -> list[PaperRecord]:
@@ -869,6 +890,17 @@ class AcademicSearchService:
             timeout=httpx.Timeout(10.0, connect=3.0),
         )
 
+    async def lookup_pmcid(self, client: httpx.AsyncClient, doi: str) -> str | None:
+        """Map a DOI to its PubMed Central id (NCBI ID Converter); None when PMC has no copy."""
+        data = await self._get_json(
+            client,
+            "https://pmc.ncbi.nlm.nih.gov/tools/idconv/api/v1/articles/",
+            {"ids": doi, "format": "json", "tool": "paper-pilot", "email": self.settings.effective_unpaywall_email},
+            "pmc_idconv",
+            timeout=httpx.Timeout(10.0, connect=3.0),
+        )
+        return normalize_pmcid(((data.get("records") or [{}])[0]).get("pmcid"))
+
     async def _lookup_openalex_by_doi(self, client: httpx.AsyncClient, doi: str) -> dict[str, Any]:
         params: dict[str, Any] = {}
         if self.settings.openalex_email:
@@ -883,10 +915,9 @@ class AcademicSearchService:
 
     @staticmethod
     def _format_exception(exc: Exception) -> str:
+        # httpx appends a second line of boilerplate and can quote a very long request URL.
         message = str(exc).strip()
-        if message:
-            return message
-        return repr(exc)
+        return message.splitlines()[0][:300] if message else repr(exc)
 
     async def _get_json(
         self,

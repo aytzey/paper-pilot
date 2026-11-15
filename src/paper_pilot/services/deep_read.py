@@ -217,7 +217,7 @@ class DeepReadingService:
         pdf_path: str | Path,
         start_page: int = 1,
         start_char: int = 0,
-        max_chars: int = 12000,
+        max_chars: int = 20000,
     ) -> dict:
         """Read consecutive page text, including continuations inside oversized pages."""
         if not 1 <= max_chars <= 20000:

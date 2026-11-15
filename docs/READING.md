@@ -9,10 +9,16 @@ Ask your agent:
 > including references and appendices. Render figures and tables. Report unreadable pages
 > and cite PDF page numbers; do not substitute abstracts or top_chunks for a full read.
 
-`deep_read_topic` and `extract_local_pdf_text` deliver the first sequential text batch automatically.
-For a specific PDF URL, call `inspect_open_access_pdf`, then `read_pdf_text` on its returned `pdf_path`.
+`download_paper`, `deep_read_topic` and `extract_local_pdf_text` deliver the first sequential text batch
+automatically. For one specific paper, call `download_paper` with its DOI, arXiv ID, PubMed Central ID
+or PDF link, then `read_pdf_text` on the returned `pdf_path`.
 Continue with the same path and the returned `start_page` / `start_char`. Each response carries at most
-12,000 text characters by default; even an oversized page continues at the exact character.
+20,000 text characters; even an oversized page continues at the exact character.
+
+Responses are sized on purpose. Codex truncates tool output at about 10,000 tokens and Claude Code at
+25,000, and text cut by the client never reaches the model. Search results therefore carry shortened
+abstracts and no provider blobs, `deep_read_topic` returns only the opening of each paper, and reports
+are written to `report_path` instead of being inlined. Ask for more with the cursors, not with larger limits.
 
 The agent can request the **original PDF whenever the task needs it**, without first finishing text
 reading: call `read_pdf_document`, then open the returned local file or fetch its MCP resource link
@@ -61,7 +67,7 @@ search_literature(
 
 Inspect `source_status`. To go deeper in one database, pass its `next_request` arguments back
 to `search_literature` unchanged. A failed source has a `retry_request`; failure is not exhaustion.
-Download the selected paper with `inspect_open_access_pdf(pdf_url=..., doi=...)`, then read its
+Download the selected paper with `download_paper(doi=..., pdf_url=...)`, then read its
 text/PDF. This preserves the selection instead of rerunning a broad download pipeline.
 
 `newest` requests native date ordering: publication dates where available, first submission for
@@ -75,7 +81,8 @@ The detailed product scope and pH case are in [Research decisions](RESEARCH_DECI
 
 ## Configuration
 
-**Use an available full-paper PDF directly. Unpaywall resolves missing or failed PDFs by DOI.**
+**`download_paper` tries arXiv, the PubMed Central open-data store, known PDF links, Unpaywall, and
+PubMed Central by DOI, in that order.** Details are in [AGENTS.md](../AGENTS.md#source-policy).
 Unpaywall uses `UNPAYWALL_EMAIL`, then `OPENALEX_EMAIL`, then `nomail@mail.com`
 if both are missing or blank. A PDF URL is tried before making an extra lookup.
 The integration follows the DOI/location model in the [roadoi guide](https://cran.r-project.org/web/packages/roadoi/vignettes/intro.html)
@@ -83,13 +90,12 @@ using the existing Python Unpaywall v2 client; no R installation is needed.
 
 When Unpaywall is needed, downloads try `best_oa_location` and then other `oa_locations` PDF URLs.
 Landing pages and embargoed future locations are not treated as downloadable PDFs.
-`paper.raw.unpaywall` exposes lookup status, OA locations and licensing metadata;
-`paper.raw.pdf_download` identifies the copy actually downloaded. Email configuration is optional.
-API failures are reported even
-when OpenAlex supplies a fallback. DOI-less search records are marked
-`not_applicable` and keep their direct OA access. Valid cached Unpaywall responses can be reused.
-An openable PDF might still be a cover or abstract: the agent must inspect the content. In that case,
-call `inspect_open_access_pdf(doi="...", pdf_url=None)` to request Unpaywall alternatives explicitly.
+`paper.downloaded_from` identifies the copy actually downloaded, with the licence and version
+Unpaywall reports for it. Email configuration is optional.
+API failures are reported even when OpenAlex supplies a fallback. Valid cached Unpaywall responses can be reused.
+An openable PDF might still be a cover or abstract: `warnings` flags short files, and the agent must
+inspect the content. In that case, call `download_paper(doi="...")` without a URL to get another copy.
+A 403, a 404 or an HTML page is not retried; only timeouts, 429 and 5xx responses are.
 
 ```bash
 OPENALEX_EMAIL=you@example.com        # Optional contact email for API access

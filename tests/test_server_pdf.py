@@ -17,7 +17,9 @@ from mcp.types import EmbeddedResource, ImageContent, ResourceLink
 from paper_pilot import server
 from paper_pilot.config import Settings
 from paper_pilot.models import DownloadedDocument, PaperRecord
+from paper_pilot.services.academic import AcademicSearchService, SearchBundle
 from paper_pilot.services.content import PdfTooLargeError
+from paper_pilot.services.open_access import OpenAccessService
 
 
 def _settings(data_dir: Path, **over) -> Settings:
@@ -143,7 +145,7 @@ def test_deep_read_topic_attaches_images_and_pdf(tmp_path: Path, monkeypatch) ->
     result = out[0]
     assert isinstance(result, dict)
     # backward-compat keys preserved + all PDF paths surfaced
-    for key in ("deep_reads", "report_path", "downloads", "warnings", "agent_notes", "pdf_paths"):
+    for key in ("deep_reads", "report_path", "warnings", "agent_notes", "pdf_paths"):
         assert key in result
     assert result["pdf_paths"]
     # opt-in escalation: page images + embedded PDF in the trailing content
@@ -252,3 +254,102 @@ def test_deep_read_preserves_good_paper_when_another_is_corrupt(tmp_path: Path, 
     assert [p["pdf_path"] for p in result["deep_reads"]] == [str(good)]
     assert result["extraction_failures"][0]["pdf_path"] == str(bad)
     assert result["warnings"]
+
+
+# Codex truncates tool output at roughly 10k tokens and Claude Code cuts server instructions at
+# about 2,000 characters. Text lost there never reaches the model, so the defaults must fit.
+CLIENT_OUTPUT_CHARS = 32000
+
+
+def _long_pdf(path: Path, pages: int = 12) -> None:
+    with fitz.open() as document:
+        for number in range(1, pages + 1):
+            page = document.new_page()
+            for line in range(36):
+                page.insert_text((40, 50 + 19 * line), f"Page {number} line {line}: methods, results and limits beyond the abstract.")
+        document.save(path)
+
+
+def _served_text(tool: str, arguments: dict) -> str:
+    """The text block a client receives, after FastMCP serialization."""
+    result = asyncio.run(server.mcp._tool_manager.call_tool(tool, arguments, context=None, convert_result=True))
+    blocks = result[0] if isinstance(result, tuple) else result
+    return next(block.text for block in blocks if block.type == "text")
+
+
+def test_server_instructions_survive_client_truncation() -> None:
+    assert len(server.mcp.instructions) <= 2000
+    assert "download_paper" in server.mcp.instructions and "next_cursor" in server.mcp.instructions
+
+
+def test_default_deep_read_fits_the_client_and_every_paper_can_be_continued(tmp_path: Path, monkeypatch) -> None:
+    _patch_settings(tmp_path, monkeypatch)
+    abstract = "Background and conclusions. " * 80
+    papers = [PaperRecord(source="test", source_id=str(i), title=f"Paper {i}", doi=f"10.1234/{i}", abstract=abstract,
+                          authors=[f"Author {n}" for n in range(30)]) for i in range(12)]
+    documents = []
+    for paper in papers[:4]:
+        path = tmp_path / f"{paper.source_id}.pdf"
+        _long_pdf(path)
+        documents.append(DownloadedDocument(paper=paper, path=path, page_count=12, extracted_preview=""))
+
+    async def fake_pipeline(**kwargs):
+        return {"top_papers": papers, "related_papers": papers[6:], "downloads": documents,
+                "scihub_downloads": [], "warnings": []}
+
+    monkeypatch.setattr(server, "_run_research_pipeline", fake_pipeline)
+    served = _served_text("deep_read_topic", {"topic": "methods results limits"})
+    assert len(served) <= CLIENT_OUTPUT_CHARS
+    result = json.loads(served)
+    assert len(result["deep_reads"]) == 4
+    for read in result["deep_reads"]:
+        opening = read["full_text"]
+        assert opening["pages"][0]["text"].startswith("Page 1 line 0")
+        cursor = opening["next_cursor"]
+        served_rest = _served_text("read_pdf_text", {"pdf_path": read["pdf_path"], **cursor})
+        assert len(served_rest) <= CLIENT_OUTPUT_CHARS
+        first = json.loads(served_rest)["pages"][0]
+        assert (first["page"], first["start_char"]) == (cursor["start_page"], cursor["start_char"])
+
+
+def test_search_results_share_one_abstract_budget(tmp_path: Path, monkeypatch) -> None:
+    service = AcademicSearchService(_settings(tmp_path))
+    papers = [PaperRecord(source="openalex", source_id=str(i), title=f"Paper {i}", doi=f"10.1234/{i}",
+                          abstract="Long abstract sentence. " * 200, raw={"unpaywall": {"oa_locations": ["x" * 5000]}})
+              for i in range(60)]
+
+    async def search(**kwargs):
+        return SearchBundle(papers, [], [])
+
+    monkeypatch.setattr(service, "search_literature", search)
+    monkeypatch.setattr(server, "get_academic_service", lambda: service)
+    monkeypatch.setattr(server, "get_settings", lambda: service.settings)
+    served = _served_text("search_literature", {"topic": "anything", "limit_per_source": 10})
+    assert len(served) <= CLIENT_OUTPUT_CHARS
+    results = json.loads(served)["results"]
+    assert len(results) == 60 and "raw" not in results[0]
+    assert results[0]["abstract"].endswith("[abstract truncated]")
+
+
+def test_download_paper_starts_the_read_and_flags_a_stub(tmp_path: Path, monkeypatch) -> None:
+    _patch_settings(tmp_path, monkeypatch)
+    full, stub = tmp_path / "full.pdf", tmp_path / "stub.pdf"
+    _long_pdf(full)
+    _make_pdf(stub, pages=1)
+
+    class FakeAccess:
+        async def download_paper(self, pdf_url, title, doi, arxiv_id, pmcid):
+            path = stub if doi == "10.1234/stub" else full
+            paper = PaperRecord(source="doi", source_id=doi, title=title, doi=doi,
+                                raw={"pdf_download": {"url": "https://example.org/a.pdf", "resolver": "unpaywall", "location": None}})
+            return OpenAccessService(server.get_settings()).inspect_local_pdf(paper, path)
+
+    monkeypatch.setattr(server, "get_open_access_service", lambda: FakeAccess())
+    result = json.loads(_served_text("download_paper", {"doi": "10.1234/full"}))
+    assert result["page_count"] == 12 and result["text_chars"] > 20000 and not result["warnings"]
+    assert result["paper"]["downloaded_from"]["resolver"] == "unpaywall"
+    assert result["full_text"]["pages"][0]["page"] == 1 and result["full_text"]["next_cursor"]
+    assert "extracted_preview" not in result
+
+    stub_result = asyncio.run(server.download_paper(doi="10.1234/stub"))
+    assert any("may be an abstract" in warning for warning in stub_result["warnings"])

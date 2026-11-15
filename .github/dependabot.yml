@@ -8,3 +8,7 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    ignore:
+      # mcp 2.x removed mcp.server.fastmcp; moving to it is a port, not a version bump.
+      - dependency-name: "mcp"
+        update-types: ["version-update:semver-major"]
